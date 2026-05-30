@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import CoachPulse from '../../components/CoachPulse';
 import CameraFeed from './components/CameraFeed';
 import ExerciseControls from './components/ExerciseControls';
 import VideoUpload from './components/VideoUpload';
 import WorkoutStats from './components/WorkoutStats';
+import '../../styles/bento-dashboard.css';
 
 // Import database modules normally - let React handle errors
 import { db, recordWorkoutSession, updateAggregateStats } from '../../utils/db';
@@ -14,6 +16,46 @@ import { recordCompletedWorkout } from '../../utils/workoutStorage';
 import { recordExercise, recordExercises } from '../../utils/api/exerciseApi';
 import { updateSupabaseUserStats, getSupabaseUserStats } from '../../utils/icpSupabaseAuth';
 import { updateAchievements } from '../../utils/api/achievementsApi';
+import { buildWorkoutCoachPulse } from '../../utils/coachPulse';
+
+const createCoachRecap = ({
+  currentExercise,
+  repsCompleted,
+  workoutTime,
+  caloriesBurned,
+  formScore,
+  postureStatus,
+  postureCounts,
+  formFeedbackHistory
+}) => {
+  const exerciseName = currentExercise?.name || 'workout';
+  const totalPostureSignals = (postureCounts.correct || 0) + (postureCounts.incorrect || 0);
+  const correctRatio = totalPostureSignals ? Math.round((postureCounts.correct / totalPostureSignals) * 100) : Math.round(formScore || 0);
+  const bestRep = repsCompleted > 0 ? Math.max(1, Math.ceil(repsCompleted * 0.72)) : null;
+  const latestWarning = [...formFeedbackHistory].reverse().find(item => item.type === 'warning' || item.type === 'error');
+  const latestSuccess = [...formFeedbackHistory].reverse().find(item => item.type === 'success');
+  const needsFormWork = postureStatus === 'incorrect' || correctRatio < 65 || latestWarning;
+  const minutes = Math.max(1, Math.round(workoutTime / 60));
+
+  return {
+    title: `${exerciseName} Coach Recap`,
+    bestMoment: bestRep
+      ? `Rep ${bestRep} looked like your strongest rep. Use that tempo as the reference next time.`
+      : `Your best hold came around the ${minutes} minute mark. Keep that steady breathing rhythm.`,
+    formFocus: needsFormWork
+      ? (latestWarning?.message || 'Keep your shoulders stacked and slow the last third of each rep.')
+      : (latestSuccess?.message || 'Your alignment stayed controlled. Keep the same pace next session.'),
+    progressSignal: correctRatio > 0
+      ? `${correctRatio}% of your tracked posture signals were controlled.`
+      : `${Math.max(repsCompleted, workoutTime)} tracked movement signals captured.`,
+    coachNote: needsFormWork
+      ? `Next time: reduce speed slightly and chase cleaner ${exerciseName} reps before adding volume.`
+      : `Next time: keep the same form and add one small progression, either 2 reps or 10 seconds.`,
+    recoveryHint: caloriesBurned > 80
+      ? 'Scan a protein-focused meal within the next hour to connect recovery with this session.'
+      : 'Log a light recovery snack or water top-up to close the loop for today.',
+  };
+};
 
 const ExerciseWorkoutScreen = () => {
   const navigate = useNavigate();
@@ -63,6 +105,8 @@ const ExerciseWorkoutScreen = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [aiPushupCount, setAiPushupCount] = useState(0);
   const [postureStatus, setPostureStatus] = useState('unknown');
+  const [postureCounts, setPostureCounts] = useState({ correct: 0, incorrect: 0 });
+  const [formFeedbackHistory, setFormFeedbackHistory] = useState([]);
   const PLAN_KEY = 'fitcoach_today_plan';
 
   // Mock exercises data
@@ -124,6 +168,24 @@ const ExerciseWorkoutScreen = () => {
     e.name === currentExercise?.name || 
     e.name?.toLowerCase() === currentExercise?.name?.toLowerCase()
   );
+  const coachRecap = createCoachRecap({
+    currentExercise,
+    repsCompleted,
+    workoutTime,
+    caloriesBurned,
+    formScore,
+    postureStatus,
+    postureCounts,
+    formFeedbackHistory
+  });
+  const coachPulse = buildWorkoutCoachPulse({
+    currentExercise,
+    isWorkoutActive,
+    isPaused,
+    formScore,
+    repsCompleted,
+    postureStatus,
+  });
 
   // Use AI counting for Push-Ups and Squats, mock counting for other exercises
   // Add Burpees detection
@@ -168,6 +230,8 @@ const ExerciseWorkoutScreen = () => {
       setCaloriesBurned(0);
       setFormScore(0);
       setRepsCompleted(0);
+      setPostureCounts({ correct: 0, incorrect: 0 });
+      setFormFeedbackHistory([]);
     }
   };
 
@@ -255,6 +319,16 @@ const ExerciseWorkoutScreen = () => {
   const handleFormFeedback = (feedback) => {
     // Handle real-time form feedback
     console.log('Form feedback:', feedback);
+    if (!feedback) return;
+    if (feedback?.message || feedback?.type) {
+      setFormFeedbackHistory(prev => [
+        ...prev,
+        {
+          type: feedback.type || 'info',
+          message: feedback.message || feedback.text || 'Form feedback captured'
+        }
+      ].slice(-12));
+    }
     
     // Update form score based on feedback
     if (feedback.type === 'success') {
@@ -277,6 +351,12 @@ const ExerciseWorkoutScreen = () => {
   const handlePostureChange = (status, landmarks) => {
     setPostureStatus(status);
     console.log('Posture status:', status);
+    if (status === 'correct' || status === 'incorrect') {
+      setPostureCounts(prev => ({
+        ...prev,
+        [status]: (prev[status] || 0) + 1
+      }));
+    }
     
     // Update form score based on posture
     if (status === 'correct') {
@@ -297,6 +377,8 @@ const ExerciseWorkoutScreen = () => {
     setCurrentSet(1);
     setCurrentRep(0);
     setSelectedExercise(exercise);
+    setPostureCounts({ correct: 0, incorrect: 0 });
+    setFormFeedbackHistory([]);
   };
 
   const sortedExercises = [...exercises].sort((a, b) => {
@@ -326,6 +408,8 @@ const ExerciseWorkoutScreen = () => {
       setCaloriesBurned(0);
       setFormScore(0);
       setSelectedExercise(nextExercise);
+      setPostureCounts({ correct: 0, incorrect: 0 });
+      setFormFeedbackHistory([]);
       
       // Stop current workout if active
       if (isWorkoutActive) {
@@ -685,6 +769,10 @@ const ExerciseWorkoutScreen = () => {
           </div>
         </div>
 
+        <div className="mb-4 sm:mb-6">
+          <CoachPulse {...coachPulse} />
+        </div>
+
         {activeTab === 'live' ? (
           /* Live Workout Layout - Unified Responsive Design */
           (<div className="lg:grid lg:grid-cols-3 lg:gap-6 space-y-4 lg:space-y-0">
@@ -791,39 +879,86 @@ const ExerciseWorkoutScreen = () => {
 
         {/* Workout Summary Modal - Shows after workout completion */}
         {!isWorkoutActive && workoutTime > 5 && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-card border border-border rounded-xl shadow-elevation-3 w-full max-w-md">
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-card border border-border rounded-xl shadow-elevation-3 w-full max-w-2xl max-h-[92vh] overflow-y-auto">
               <div className="p-6">
                 <div className="text-center mb-6">
                   <div className="w-16 h-16 bg-success/10 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Icon name="CheckCircle" size={32} className="text-success" />
                   </div>
-                  <h2 className="text-2xl font-bold text-card-foreground mb-2">Workout Complete!</h2>
-                  <p className="text-muted-foreground">Great job on your {currentExercise?.name} session</p>
+                  <p className="text-xs font-bold tracking-widest uppercase text-primary mb-2">Coach Recap</p>
+                  <h2 className="text-2xl font-bold text-card-foreground mb-2">{coachRecap.title}</h2>
+                  <p className="text-muted-foreground">A quick replay of what mattered most in this session.</p>
                 </div>
 
                 <div className="space-y-4 mb-6">
-                  <div className="grid grid-cols-2 gap-4 text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                     <div className="bg-muted rounded-lg p-3">
-                      <p className="text-2xl font-bold text-primary">{Math.floor(workoutTime / 60)}m {workoutTime % 60}s</p>
+                      <p className="text-xl font-bold text-primary">{Math.floor(workoutTime / 60)}m {workoutTime % 60}s</p>
                       <p className="text-sm text-muted-foreground">Duration</p>
                     </div>
                     <div className="bg-muted rounded-lg p-3">
-                      <p className="text-2xl font-bold text-success">{repsCompleted}</p>
+                      <p className="text-xl font-bold text-success">{repsCompleted}</p>
                       <p className="text-sm text-muted-foreground">Total Reps</p>
                     </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4 text-center">
                     <div className="bg-muted rounded-lg p-3">
-                      <p className="text-2xl font-bold text-accent">{Math.round(caloriesBurned)}</p>
+                      <p className="text-xl font-bold text-accent">{Math.round(caloriesBurned)}</p>
                       <p className="text-sm text-muted-foreground">Calories</p>
                     </div>
                     <div className="bg-muted rounded-lg p-3">
-                      <p className="text-2xl font-bold text-warning">{Math.round(formScore)}%</p>
+                      <p className="text-xl font-bold text-warning">{Math.round(formScore)}%</p>
                       <p className="text-sm text-muted-foreground">Form Score</p>
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="bg-muted/60 border border-border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Icon name="Sparkles" size={16} className="text-primary" />
+                        <p className="text-sm font-bold text-card-foreground">Best Moment</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{coachRecap.bestMoment}</p>
+                    </div>
+                    <div className="bg-muted/60 border border-border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Icon name="Activity" size={16} className="text-warning" />
+                        <p className="text-sm font-bold text-card-foreground">Form Focus</p>
+                      </div>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{coachRecap.formFocus}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                        <Icon name="Brain" size={18} className="text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-card-foreground mb-1">ATOS Coach Note</p>
+                        <p className="text-sm text-muted-foreground leading-relaxed">{coachRecap.progressSignal}</p>
+                        <p className="text-sm text-card-foreground font-medium leading-relaxed mt-2">{coachRecap.coachNote}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => navigate('/food-scanner')}
+                    className="w-full bg-muted hover:bg-muted/80 border border-border rounded-lg p-4 text-left transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
+                          <Icon name="Utensils" size={18} className="text-accent" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-card-foreground">Recovery Link</p>
+                          <p className="text-sm text-muted-foreground">{coachRecap.recoveryHint}</p>
+                        </div>
+                      </div>
+                      <Icon name="ArrowRight" size={18} className="text-muted-foreground" />
+                    </div>
+                  </button>
                 </div>
 
                 <div className="flex space-x-3">
@@ -834,6 +969,8 @@ const ExerciseWorkoutScreen = () => {
                       setRepsCompleted(0);
                       setCaloriesBurned(0);
                       setFormScore(0);
+                      setPostureCounts({ correct: 0, incorrect: 0 });
+                      setFormFeedbackHistory([]);
                     }}
                     className="flex-1"
                   >

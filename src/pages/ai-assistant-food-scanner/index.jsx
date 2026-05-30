@@ -12,6 +12,7 @@ import FoodAnalysisResult from './components/FoodAnalysisResult';
 import ScanHistory from './components/ScanHistory';
 import ChatHistory from './components/ChatHistory';
 import { logFood, getFoodLogs, clearAllFoodLogs } from '../../utils/api/foodApi';
+import { normalizeFoodAnalysis, parseFoodAnalysisResponse } from '../../utils/foodAnalysisNormalizer';
 
 const AIAssistantFoodScanner = ({ chatOnly = false }) => {
   const navigate = useNavigate();
@@ -100,13 +101,22 @@ const AIAssistantFoodScanner = ({ chatOnly = false }) => {
     recommendation: food.recommendation || '',
   });
 
+  const isUsableFoodLog = (food) => {
+    const name = String(food?.food_name || food?.name || '').trim().toLowerCase();
+    const calories = Number(food?.calories || 0);
+    const protein = Number(food?.protein || 0);
+    const carbs = Number(food?.carbs ?? food?.carbohydrates ?? 0);
+    const fats = Number(food?.fat ?? food?.fats ?? 0);
+    return !(name.includes('unknown food') && calories === 0 && protein === 0 && carbs === 0 && fats === 0);
+  };
+
   // Load saved scan history for this account
   useEffect(() => {
     const loadSavedScans = async () => {
       try {
         const userId = getUserId();
         const foods = await getFoodLogs(userId, { limit: 50 });
-        setScanHistory(foods.map(formatFoodLog));
+        setScanHistory(foods.filter(isUsableFoodLog).map(formatFoodLog));
       } catch (error) {
         console.warn('Could not load saved food scans:', error);
       }
@@ -198,7 +208,7 @@ const AIAssistantFoodScanner = ({ chatOnly = false }) => {
     } catch { }
   }, [messages, chatSessionId]);
 
-  const CHATBOT_API_KEY = import.meta.env.VITE_CHATBOT_API_KEY || 'AIzaSyCYSSno1zaKO9-s3zVetn9oKes_AhAdfqk';
+  const CHATBOT_API_KEY = import.meta.env.VITE_CHATBOT_API_KEY || '';
   const handleSendMessage = async (message) => {
     const userMessage = {
       id: Date.now(),
@@ -228,6 +238,10 @@ const AIAssistantFoodScanner = ({ chatOnly = false }) => {
     setIsTyping(true);
 
     try {
+      if (!CHATBOT_API_KEY) {
+        throw new Error('Gemini API key is missing. Add a fresh VITE_CHATBOT_API_KEY to .env.');
+      }
+
       // Refresh latest user profile from localStorage on each send
       let currentUserProfile = userProfile;
       try {
@@ -369,6 +383,10 @@ User message: ${message}`
         })
       });
       const data = await response.json();
+      if (data?.error) {
+        throw new Error(data.error.message || 'AI service error.');
+      }
+      if (!response.ok) throw new Error(`AI service request failed with status ${response.status}.`);
       let aiText = 'Sorry, no response from AI.';
       if (Array.isArray(data?.candidates) && data.candidates.length > 0) {
         const parts = data.candidates[0]?.content?.parts;
@@ -478,6 +496,10 @@ User message: ${message}`
       });
       const imageBase64 = await toBase64(file);
 
+      if (!CHATBOT_API_KEY) {
+        throw new Error('Gemini API key is missing. Add a fresh VITE_CHATBOT_API_KEY to .env.');
+      }
+
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${CHATBOT_API_KEY}`;
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -496,14 +518,21 @@ User message: ${message}`
                 },
                 {
                   text:
-                    `Analyze this food image and predict its nutritional components. Always return a valid JSON object with these exact fields: { "name": string, "calories": number, "protein": number, "carbohydrates": number, "fat": number, "sugar": number, "serving_size": string, "recommendation": string, "allergens": string, "health_score": number }. Do not include any explanation or text outside the JSON. If you are unsure about the sugar content, estimate based on the food type.`
+                    `Analyze this food image and return one minified JSON object only. Do not use markdown, code fences, comments, or prose. Estimate nutrition for the visible serving. Required fields: {"name":string,"calories":number,"protein":number,"carbohydrates":number,"fat":number,"sugar":number,"serving_size":string,"recommendation":string,"allergens":string,"health_score":number}. Never omit protein, carbohydrates, fat, or sugar; if uncertain, provide the best visual estimate as numeric grams.`
                 }
               ]
             }
-          ]
+          ],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1024, responseMimeType: 'application/json' }
         })
       });
       const data = await response.json();
+      if (data?.error) {
+        throw new Error(data.error.message || 'Food analysis API error.');
+      }
+      if (!response.ok) {
+        throw new Error(`Food analysis API request failed with status ${response.status}.`);
+      }
       let result = null;
       let rawText = '';
       if (Array.isArray(data?.candidates) && data.candidates.length > 0) {
@@ -512,32 +541,22 @@ User message: ${message}`
           const textParts = parts.filter(p => p.text).map(p => p.text);
           if (textParts.length > 0) {
             rawText = textParts.join('\n');
-            let jsonMatch = rawText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              try {
-                result = JSON.parse(jsonMatch[0]);
-              } catch {
-                try { result = JSON.parse(rawText); } catch { result = null; }
-              }
-            } else {
-              try { result = JSON.parse(rawText); } catch { result = null; }
-            }
-            if (!result) {
-              result = { name: 'Unknown', recommendation: rawText || 'No prediction from AI.' };
-            }
+            result = parseFoodAnalysisResponse(rawText);
           }
         }
       }
       if (result) {
-        result.image = URL.createObjectURL(file);
-        result.scanType = scanType;
-        result.timestamp = new Date();
-        setScanResult(result);
+        const normalizedResult = normalizeFoodAnalysis(result, {
+          image: URL.createObjectURL(file),
+          scanType,
+          timestamp: new Date(),
+        });
+        setScanResult(normalizedResult);
       } else {
-        setScanResult({ name: 'Unknown', recommendation: rawText || 'No prediction from AI.', image: URL.createObjectURL(file), scanType, timestamp: new Date() });
+        throw new Error(rawText ? 'The AI response did not include usable nutrition JSON.' : 'No food prediction was returned from AI.');
       }
     } catch (error) {
-      setScanResult({ name: 'Error', recommendation: 'Error contacting AI service.', image: URL.createObjectURL(file), scanType, timestamp: new Date() });
+      setScanResult({ name: 'Error', recommendation: error.message || 'Error contacting AI service.', image: URL.createObjectURL(file), scanType, timestamp: new Date(), errorMessage: error.message });
     } finally {
       setIsScanning(false);
     }
@@ -594,6 +613,8 @@ User message: ${message}`
     navigate('/login-screen');
   };
 
+  const shouldShowSidebar = chatOnly ? showChatHistory : (activeTab === 'chat' ? showChatHistory : true);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -610,12 +631,12 @@ User message: ${message}`
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
-      <main className="pt-24 lg:pl-72 min-h-screen relative z-10">
-        <div className="p-4 lg:p-6">
+      <main className="pt-20 lg:pl-72 min-h-screen relative z-10">
+        <div className="p-3 lg:p-5">
 
 
           {/* Page Header */}
-          <div className="mb-6">
+          <div className="mb-4">
             <h1 className="text-2xl lg:text-3xl font-bold text-foreground mb-2">
               {chatOnly ? 'AI Chatbot' : 'AI Assistant & Food Scanner'}
             </h1>
@@ -629,17 +650,17 @@ User message: ${message}`
             <TabNavigation
               activeTab={activeTab}
               onTabChange={setActiveTab}
-              className="mb-6"
+              className="mb-4"
             />
           )}
 
           {/* Content Area */}
           <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
             {/* Main Content */}
-            <div className="xl:col-span-3">
+            <div className={shouldShowSidebar ? "xl:col-span-3" : "xl:col-span-4"}>
               {chatOnly ? (
                 /* Chat Assistant (chat-only mode) */
-                (<div className="bg-card border border-border rounded-xl min-h-[60vh] sm:min-h-[65vh] md:min-h-[70vh] lg:min-h-[75vh] xl:min-h-[78vh] flex flex-col">
+                (<div className="bg-card border border-border rounded-xl h-[calc(100vh-190px)] min-h-[500px] flex flex-col">
                   {/* Chat Header */}
                   <div className="p-3 sm:p-4 border-b border-border">
                     <div className="flex items-center flex-wrap gap-3">
@@ -686,7 +707,7 @@ User message: ${message}`
                 </div>)
               ) : activeTab === 'chat' ? (
                 /* Chat Assistant */
-                (<div className="bg-card border border-border rounded-xl min-h-[60vh] sm:min-h-[65vh] md:min-h-[70vh] lg:min-h-[75vh] xl:min-h-[78vh] flex flex-col">
+                (<div className="bg-card border border-border rounded-xl h-[calc(100vh-230px)] min-h-[500px] flex flex-col">
                   {/* Chat Header */}
                   <div className="p-3 sm:p-4 border-b border-border">
                     <div className="flex items-center flex-wrap gap-3">
@@ -752,43 +773,45 @@ User message: ${message}`
             </div>
 
             {/* Sidebar Content */}
-            <div className="xl:col-span-1 space-y-6">
-              {chatOnly ? (
-                showChatHistory ? (
-                  <div className="bg-card border border-border rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-3">
+            {shouldShowSidebar && (
+              <div className="xl:col-span-1 space-y-6">
+                {chatOnly ? (
+                  showChatHistory ? (
+                    <div className="bg-card border border-border rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                      </div>
+                      <ChatHistory
+                        sessions={chatSessions}
+                        currentSessionId={chatSessionId}
+                        onSelectSession={handleSelectSession}
+                        onDeleteSession={handleDeleteSession}
+                      />
                     </div>
-                    <ChatHistory
-                      sessions={chatSessions}
-                      currentSessionId={chatSessionId}
-                      onSelectSession={handleSelectSession}
-                      onDeleteSession={handleDeleteSession}
+                  ) : null
+                ) : activeTab === 'chat' ? (
+                  showChatHistory ? (
+                    <div className="bg-card border border-border rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                      </div>
+                      <ChatHistory
+                        sessions={chatSessions}
+                        currentSessionId={chatSessionId}
+                        onSelectSession={handleSelectSession}
+                        onDeleteSession={handleDeleteSession}
+                      />
+                    </div>
+                  ) : null
+                ) : (
+                  <div className="bg-card border border-border rounded-xl p-4">
+                    <ScanHistory
+                      history={scanHistory}
+                      onReanalyze={handleReanalyze}
+                      onClearHistory={handleClearHistory}
                     />
                   </div>
-                ) : null
-              ) : activeTab === 'chat' ? (
-                showChatHistory ? (
-                  <div className="bg-card border border-border rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-3">
-                    </div>
-                    <ChatHistory
-                      sessions={chatSessions}
-                      currentSessionId={chatSessionId}
-                      onSelectSession={handleSelectSession}
-                      onDeleteSession={handleDeleteSession}
-                    />
-                  </div>
-                ) : null
-              ) : (
-                <div className="bg-card border border-border rounded-xl p-4">
-                  <ScanHistory
-                    history={scanHistory}
-                    onReanalyze={handleReanalyze}
-                    onClearHistory={handleClearHistory}
-                  />
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>

@@ -40,37 +40,28 @@ const ChatInput = ({ onSendMessage, disabled = false }) => {
   ];
 
   return (
-    <div style={{ padding: '1.5rem', borderTop: '1px solid var(--bento-border)', backgroundColor: 'var(--bento-chip)' }}>
+    <div className="chat-input-container">
       
       {/* Quick Prompts */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
+      <div className="chat-input-prompts">
         {quickPrompts.map((prompt, idx) => (
           <button
             key={idx}
             onClick={() => !disabled && onSendMessage(prompt)}
             disabled={disabled}
+            className="chat-input-prompt-btn"
             style={{
-              background: 'var(--bento-chip)',
-              border: '1px solid var(--bento-border)',
-              color: 'var(--bento-muted)',
-              padding: '6px 12px',
-              borderRadius: '999px',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
-              opacity: disabled ? 0.5 : 1
+              opacity: disabled ? 0.5 : 1,
+              cursor: disabled ? 'not-allowed' : 'pointer'
             }}
-            onMouseOver={e => { if(!disabled){ e.currentTarget.style.backgroundColor = 'rgba(255, 138, 0,0.1)'; e.currentTarget.style.color = '#FF8A00'; e.currentTarget.style.borderColor = 'rgba(255, 138, 0,0.3)'; } }}
-            onMouseOut={e => { if(!disabled){ e.currentTarget.style.backgroundColor = 'var(--bento-chip)'; e.currentTarget.style.color = 'var(--bento-muted)'; e.currentTarget.style.borderColor = 'var(--bento-border)'; } }}
           >
             {prompt}
           </button>
         ))}
       </div>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', alignItems: 'flex-end', gap: '12px' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
+      <form onSubmit={handleSubmit} className="chat-input-form">
+        <div className="chat-input-wrapper">
           <textarea
             ref={textareaRef}
             value={message}
@@ -79,28 +70,18 @@ const ChatInput = ({ onSendMessage, disabled = false }) => {
             placeholder={t('chat.input')}
             disabled={disabled}
             rows={1}
+            className="chat-input-textarea"
             style={{
-              width: '100%',
-              backgroundColor: 'var(--bento-field)',
-              border: '1px solid var(--bento-border)',
-              borderRadius: '20px',
-              padding: isRTL ? '1rem 1.25rem 1rem 3rem' : '1rem 3rem 1rem 1.25rem',
-              color: 'var(--bento-text)',
-              fontSize: '0.95rem',
-              outline: 'none',
-              resize: 'none',
-              minHeight: '54px',
-              maxHeight: '120px',
-              transition: 'border-color 0.2s, box-shadow 0.2s',
               opacity: disabled ? 0.6 : 1
             }}
-            onFocus={e => { e.currentTarget.style.borderColor = '#FF8A00'; e.currentTarget.style.boxShadow = '0 0 0 2px rgba(255, 138, 0,0.1)'; }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--bento-border)'; e.currentTarget.style.boxShadow = 'none'; }}
           />
           <button
             type="button"
             disabled={disabled}
-            style={{ position: 'absolute', [isRTL ? 'left' : 'right']: '12px', top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: isRecording ? '#FF8A00' : 'var(--bento-muted)', cursor: 'pointer' }}
+            className="chat-input-mic-btn"
+            style={{
+              color: isRecording ? '#FF8A00' : undefined
+            }}
           >
             <Icon name="Mic" size={20} />
           </button>
@@ -109,10 +90,8 @@ const ChatInput = ({ onSendMessage, disabled = false }) => {
         <button
           type="submit"
           disabled={!message.trim() || disabled}
-          className="btn-coral"
+          className="btn-coral chat-input-send-btn"
           style={{ 
-            width: '54px', height: '54px', padding: 0, borderRadius: '50%', flexShrink: 0, 
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
             opacity: (!message.trim() || disabled) ? 0.5 : 1,
             cursor: (!message.trim() || disabled) ? 'not-allowed' : 'pointer'
           }}

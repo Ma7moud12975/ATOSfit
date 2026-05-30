@@ -2,6 +2,55 @@ import React, { useState, useRef, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
+const EMPTY_ANALYSIS_STATS = {
+  processedFrames: 0,
+  detectedFrames: 0,
+  correctFrames: 0,
+  incorrectFrames: 0,
+  unknownFrames: 0,
+  confidenceSum: 0,
+  minConfidence: 1,
+  maxConfidence: 0,
+  warningCount: 0,
+  successCount: 0,
+  feedback: [],
+  startedAt: null,
+  endedAt: null,
+};
+
+const cloneStats = (stats) => ({
+  ...stats,
+  feedback: [...(stats.feedback || [])],
+});
+
+const getPoseConfidence = (results) => {
+  const landmarks = results?.poseLandmarks || [];
+  const visible = landmarks.filter(item => (item.visibility ?? 0) > 0.5);
+  if (!visible.length) return 0;
+  return visible.reduce((sum, item) => sum + (item.visibility ?? 0), 0) / visible.length;
+};
+
+const clampScore = (score) => Math.max(0, Math.min(100, Math.round(score)));
+
+const getFormScoreFromStats = (stats) => {
+  if (!stats?.processedFrames || !stats.detectedFrames) return 0;
+
+  const detectionRate = stats.detectedFrames / stats.processedFrames;
+  const postureFrames = stats.correctFrames + stats.incorrectFrames;
+  const postureRate = postureFrames ? stats.correctFrames / postureFrames : 0.5;
+  const avgConfidence = stats.detectedFrames ? stats.confidenceSum / stats.detectedFrames : 0;
+  const warningPenalty = Math.min(18, stats.warningCount * 3);
+
+  return clampScore(
+    (postureRate * 58) +
+    (avgConfidence * 27) +
+    (detectionRate * 15) -
+    warningPenalty
+  );
+};
+
+const formatPercent = (value) => `${Math.round(value * 100)}%`;
+
 const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, onPlankTimeUpdate }) => {
   const [dragActive, setDragActive] = useState(false);
   const [uploadedVideo, setUploadedVideo] = useState(null);
@@ -19,6 +68,123 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
   const canvasRef = useRef(null);
   const poseDetectionRef = useRef(null);
   const processingIntervalRef = useRef(null);
+  const analysisStatsRef = useRef(cloneStats(EMPTY_ANALYSIS_STATS));
+  const lastStatsRenderRef = useRef(0);
+  const [analysisStats, setAnalysisStats] = useState(cloneStats(EMPTY_ANALYSIS_STATS));
+
+  const resetAnalysisStats = () => {
+    const nextStats = cloneStats(EMPTY_ANALYSIS_STATS);
+    analysisStatsRef.current = nextStats;
+    setAnalysisStats(nextStats);
+  };
+
+  const publishAnalysisStats = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastStatsRenderRef.current < 600) return;
+    lastStatsRenderRef.current = now;
+    setAnalysisStats(cloneStats(analysisStatsRef.current));
+  };
+
+  const appendAnalysisFeedback = (feedback) => {
+    if (!feedback?.message) return;
+    const stats = analysisStatsRef.current;
+    const type = feedback.type || 'info';
+    if (type === 'warning' || type === 'error') stats.warningCount += 1;
+    if (type === 'success') stats.successCount += 1;
+    stats.feedback = [
+      ...stats.feedback,
+      {
+        timestamp: videoRef.current ? formatVideoTime(videoRef.current.currentTime || 0) : 'Live',
+        message: feedback.message,
+        type
+      }
+    ].slice(-24);
+    publishAnalysisStats(true);
+  };
+
+  const recordFrameAnalysis = (results) => {
+    const stats = analysisStatsRef.current;
+    stats.startedAt = stats.startedAt || Date.now();
+    stats.endedAt = Date.now();
+    stats.processedFrames += 1;
+
+    const confidence = getPoseConfidence(results);
+    if (confidence > 0) {
+      stats.detectedFrames += 1;
+      stats.confidenceSum += confidence;
+      stats.minConfidence = Math.min(stats.minConfidence, confidence);
+      stats.maxConfidence = Math.max(stats.maxConfidence, confidence);
+    }
+
+    const currentPosture = poseDetectionRef.current?.postureStatus || postureStatus;
+    if (currentPosture === 'correct') stats.correctFrames += 1;
+    else if (currentPosture === 'incorrect') stats.incorrectFrames += 1;
+    else stats.unknownFrames += 1;
+
+    publishAnalysisStats();
+  };
+
+  const buildRealAnalysisReport = () => {
+    const stats = cloneStats(analysisStatsRef.current);
+    const exerciseName = getExerciseName();
+    const isTimeBased = ['plank', 'sideplank', 'wallsit'].includes(poseDetectionRef.current?.exerciseMode);
+    const totalReps = isTimeBased ? plankSeconds : pushupCount;
+    const avgConfidence = stats.detectedFrames ? stats.confidenceSum / stats.detectedFrames : 0;
+    const detectionRate = stats.processedFrames ? stats.detectedFrames / stats.processedFrames : 0;
+    const postureFrames = stats.correctFrames + stats.incorrectFrames;
+    const postureRate = postureFrames ? stats.correctFrames / postureFrames : 0;
+    const formScore = getFormScoreFromStats(stats);
+    const feedback = [
+      {
+        timestamp: 'Summary',
+        message: `${stats.detectedFrames}/${stats.processedFrames} frames had usable pose landmarks`,
+        type: detectionRate >= 0.7 ? 'success' : 'warning'
+      },
+      {
+        timestamp: 'Summary',
+        message: `${formatPercent(postureRate)} posture-valid frames`,
+        type: postureRate >= 0.75 ? 'success' : 'warning'
+      },
+      {
+        timestamp: 'Summary',
+        message: `${formatPercent(avgConfidence)} average landmark confidence`,
+        type: avgConfidence >= 0.75 ? 'success' : 'warning'
+      },
+      ...stats.feedback.slice(-8),
+    ];
+
+    const improvements = [];
+    if (detectionRate < 0.7) improvements.push('Use a clearer angle and keep the full body visible for more reliable scoring.');
+    if (avgConfidence < 0.75) improvements.push('Improve lighting or camera distance so the pose landmarks stay stable.');
+    if (postureRate < 0.75) improvements.push('Focus on alignment during the weak parts of the movement.');
+    if (stats.warningCount > 0) improvements.push(`${stats.warningCount} form warning${stats.warningCount === 1 ? '' : 's'} appeared during analysis.`);
+    if (!improvements.length) improvements.push('No major form issues detected from the analyzed frames.');
+
+    const strengths = [];
+    if (stats.detectedFrames > 0) strengths.push(`Real pose analysis across ${stats.detectedFrames} detected frames.`);
+    if (postureRate >= 0.75) strengths.push('Most analyzed posture frames were valid.');
+    if (avgConfidence >= 0.75) strengths.push('Landmark detection confidence was strong.');
+    if (totalReps > 0) strengths.push(`${totalReps} ${isTimeBased ? 'seconds counted' : 'reps counted'} from movement detection.`);
+
+    return {
+      exerciseDetected: exerciseName,
+      totalReps,
+      formScore,
+      feedback,
+      improvements,
+      strengths,
+      metrics: {
+        processedFrames: stats.processedFrames,
+        detectedFrames: stats.detectedFrames,
+        correctFrames: stats.correctFrames,
+        incorrectFrames: stats.incorrectFrames,
+        averageConfidence: Math.round(avgConfidence * 100),
+        detectionRate: Math.round(detectionRate * 100),
+        postureAccuracy: Math.round(postureRate * 100),
+        warningCount: stats.warningCount,
+      }
+    };
+  };
 
   // Helper function to get exercise name based on mode and selected exercise
   const getExerciseName = () => {
@@ -41,12 +207,6 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
       case 'wallsit': return 'Wall Sit';
       default: return 'Push-ups';
     }
-  };
-
-  // Helper function to get exercise name in lowercase for messages
-  const getExerciseNameLower = () => {
-    const name = getExerciseName();
-    return name.toLowerCase().replace(/[^a-z]/g, '');
   };
 
   // Initialize pose detection for video
@@ -111,6 +271,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
           setPostureStatus(status);
         },
         onFormFeedback: (feedback) => {
+          appendAnalysisFeedback(feedback);
           console.log('📝 Video Form feedback:', feedback);
         },
         onTimeUpdate: (seconds) => {
@@ -150,6 +311,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
           console.log('🎬✅ VideoUpload: Got pose results');
           setPoseResults(results);
         }
+        recordFrameAnalysis(results);
         // Draw overlay immediately after processing
         if (canvasRef.current && results && showPoseOverlay) {
           const canvas = canvasRef.current;
@@ -178,6 +340,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
   const handleVideoPlay = () => {
     console.log('▶️ Video play started');
     setIsVideoPlaying(true);
+    analysisStatsRef.current.startedAt = analysisStatsRef.current.startedAt || Date.now();
     if (poseDetectionRef.current && poseDetectionRef.current.isInitialized) {
       startVideoProcessing();
     } else {
@@ -188,6 +351,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
   const handleVideoPause = () => {
     setIsVideoPlaying(false);
     stopVideoProcessing();
+    publishAnalysisStats(true);
   };
 
   // drawPoseOverlay is now handled in RAF loop
@@ -311,6 +475,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
     setPlankSeconds(0);  // Reset plank/wall sit timer
     setPostureStatus('unknown');
     setPoseResults(null);
+    resetAnalysisStats();
     
     // Reset pose detection timer if it exists
     if (poseDetectionRef.current && poseDetectionRef.current.resetCounter) {
@@ -333,75 +498,19 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
     console.log('📹 Video uploaded, ready for live analysis during playback');
   };
 
-  const analyzeVideo = async (file) => {
-    try {
-      // For now, use enhanced mock results with some real video info
-      const mockResults = {
-        exerciseDetected: "Push-ups",
-        totalReps: Math.floor(Math.random() * 10) + 8, // Random between 8-17
-        formScore: Math.floor(Math.random() * 30) + 70, // Random between 70-99
-        feedback: [
-          { timestamp: "0:05", message: "Good starting position", type: "success" },
-          { timestamp: "0:12", message: "Keep elbows closer to body", type: "warning" },
-          { timestamp: "0:18", message: "Excellent form!", type: "success" },
-          { timestamp: "0:25", message: "Maintain straight back", type: "warning" },
-          { timestamp: "0:32", message: "Perfect push-up technique", type: "success" },
-          { timestamp: "0:38", message: "AI Analysis: Push-up detected", type: "success" }
-        ],
-        improvements: [
-          "Keep elbows at 45-degree angle",
-          "Maintain plank position throughout", 
-          "Control the descent speed",
-          "Engage core muscles throughout movement"
-        ],
-        strengths: [
-          "Consistent rep timing",
-          "Good range of motion",
-          "Proper hand placement",
-          "Video quality suitable for AI analysis"
-        ],
-        videoInfo: {
-          fileName: file.name,
-          fileSize: formatFileSize(file.size),
-          duration: "~45 seconds (estimated)"
-        }
-      };
-
-      setAnalysisResults(mockResults);
-      if (onVideoAnalysis) {
-        onVideoAnalysis(mockResults);
-      }
-      
-      console.log('Video analysis completed for:', file.name);
-      
-    } catch (error) {
-      console.error('Video analysis error:', error);
-      
-      // Fallback results
-      const fallbackResults = {
-        exerciseDetected: "Push-ups", 
-        totalReps: 10,
-        formScore: 75,
-        feedback: [
-          { timestamp: "0:00", message: "Analysis completed with basic detection", type: "success" }
-        ],
-        improvements: ["Upload a clearer video for better analysis"],
-        strengths: ["Video uploaded successfully"]
-      };
-
-      setAnalysisResults(fallbackResults);
-      if (onVideoAnalysis) {
-        onVideoAnalysis(fallbackResults);
-      }
-    }
-  };
-
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i))?.toFixed(2)) + ' ' + sizes?.[i];
+  };
+
+  const formatVideoTime = (seconds = 0) => {
+    const safeSeconds = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(safeSeconds / 60);
+    const secs = Math.floor(safeSeconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getScoreColor = (score) => {
@@ -432,6 +541,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
     setPlankSeconds(0);  // Reset plank/wall sit timer
     setPostureStatus('unknown');
     setPoseResults(null);
+    resetAnalysisStats();
     
     if (fileInputRef?.current) {
       fileInputRef.current.value = '';
@@ -593,19 +703,8 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      const exerciseName = getExerciseName();
-                      const exerciseNameLower = getExerciseNameLower();
-                      const liveResults = {
-                        exerciseDetected: exerciseName,
-                        totalReps: pushupCount,
-                        formScore: postureStatus === 'correct' ? 85 : postureStatus === 'incorrect' ? 60 : 75,
-                        feedback: [
-                          { timestamp: "Live", message: `${pushupCount} ${exerciseNameLower} detected`, type: "success" },
-                          { timestamp: "Live", message: `Posture: ${postureStatus}`, type: postureStatus === 'correct' ? 'success' : 'warning' }
-                        ],
-                        improvements: postureStatus === 'incorrect' ? ["Maintain straight back alignment"] : ["Great form!"],
-                        strengths: ["Live AI pose detection", "Real-time analysis"]
-                      };
+                      publishAnalysisStats(true);
+                      const liveResults = buildRealAnalysisReport();
                       setAnalysisResults(liveResults);
                       if (onVideoAnalysis) {
                         onVideoAnalysis(liveResults);
@@ -635,6 +734,28 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
                     <p className="text-sm text-muted-foreground">Posture</p>
                   </div>
                 </div>
+                {analysisStats.processedFrames > 0 && (
+                  <div className="grid grid-cols-3 gap-2 text-center mt-4 pt-4 border-t border-border">
+                    <div>
+                      <p className={`text-lg font-bold ${getScoreColor(getFormScoreFromStats(analysisStats))}`}>
+                        {getFormScoreFromStats(analysisStats)}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">Live Score</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-primary">
+                        {analysisStats.detectedFrames}/{analysisStats.processedFrames}
+                      </p>
+                      <p className="text-xs text-muted-foreground">Frames</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-accent">
+                        {analysisStats.detectedFrames ? Math.round((analysisStats.confidenceSum / analysisStats.detectedFrames) * 100) : 0}%
+                      </p>
+                      <p className="text-xs text-muted-foreground">Confidence</p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -671,6 +792,26 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
                     <p className="text-sm text-muted-foreground">Reps Counted</p>
                   </div>
                 </div>
+                {analysisResults?.metrics && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-4 border-t border-border text-center">
+                    <div>
+                      <p className="text-lg font-bold text-card-foreground">{analysisResults.metrics.detectedFrames}/{analysisResults.metrics.processedFrames}</p>
+                      <p className="text-xs text-muted-foreground">Analyzed Frames</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-primary">{analysisResults.metrics.averageConfidence}%</p>
+                      <p className="text-xs text-muted-foreground">Avg Confidence</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-success">{analysisResults.metrics.postureAccuracy}%</p>
+                      <p className="text-xs text-muted-foreground">Posture Accuracy</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-warning">{analysisResults.metrics.warningCount}</p>
+                      <p className="text-xs text-muted-foreground">Warnings</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Feedback Timeline */}

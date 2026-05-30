@@ -30,7 +30,7 @@ const ChatPage = () => {
     try {
       const u = JSON.parse(localStorage.getItem('user') || '{}');
       if (u?.name) setUser(u);
-    } catch {}
+    } catch { }
   }, []);
 
   const welcomeMessage = () => ({
@@ -89,7 +89,7 @@ const ChatPage = () => {
     }
   }, [messages, isTyping]);
 
-  const CHATBOT_API_KEY = import.meta.env.VITE_CHATBOT_API_KEY || 'AIzaSyCYSSno1zaKO9-s3zVetn9oKes_AhAdfqk';
+  const CHATBOT_API_KEY = import.meta.env.VITE_CHATBOT_API_KEY || '';
 
   const handleSendMessage = async (message) => {
     const userMessage = { id: Date.now(), message, isUser: true, timestamp: new Date() };
@@ -102,12 +102,18 @@ const ChatPage = () => {
     setIsTyping(true);
 
     try {
+      if (!CHATBOT_API_KEY) {
+        throw new Error('Gemini API key is missing. Add a fresh VITE_CHATBOT_API_KEY to .env.');
+      }
+
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${CHATBOT_API_KEY}`;
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `You are ATOS fit, a helpful AI fitness coach.
+          contents: [{
+            parts: [{
+              text: `You are ATOS fit, a helpful AI fitness coach.
 Answer in plain text only. Do not use Markdown formatting or symbols such as #, ##, ###, **, *, -, or ---.
 Use short paragraphs or numbered lines without special symbols.
 Reply in ${language === 'ar' ? 'Arabic unless the user asks for another language' : 'English unless the user asks for another language'}.
@@ -115,14 +121,18 @@ Reply in ${language === 'ar' ? 'Arabic unless the user asks for another language
 Conversation so far:
 ${recentConversation || 'This is the first user turn in this chat.'}
 
-User message: ${message}` }] }],
+User message: ${message}`
+            }]
+          }],
           generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
         })
       });
 
-      if (!response.ok) throw new Error('API Error');
-
       const data = await response.json();
+      if (data?.error) {
+        throw new Error(data.error.message || 'AI service error.');
+      }
+      if (!response.ok) throw new Error(`AI service request failed with status ${response.status}.`);
       let aiText = t('chat.fallback');
       if (Array.isArray(data?.candidates) && data.candidates.length > 0) {
         const parts = data.candidates[0]?.content?.parts;
@@ -189,30 +199,30 @@ User message: ${message}` }] }],
         user={user}
         onLogout={handleLogout}
       />
-      
+
       <SidebarNavigation isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-      <main className="pt-24 lg:pl-72 min-h-screen">
-        <div className="px-4 py-6 md:px-8 md:py-8 max-w-[1400px] mx-auto flex flex-col h-[calc(100vh-96px)]">
-          
-          <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <main className="pt-20 lg:pl-72 min-h-screen">
+        <div className="px-3 py-3 md:px-6 md:py-4 max-w-[1500px] mx-auto flex flex-col h-[calc(100vh-100px)]">
+
+          <div style={{ marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <h1 style={{ fontSize: '2.4rem', fontWeight: 900, color: 'var(--bento-text)', margin: 0, letterSpacing: '0' }}>{t('chat.title')}</h1>
-              <p style={{ color: 'var(--bento-muted)', fontSize: '1rem', marginTop: '0.25rem' }}>{t('chat.subtitle')}</p>
+              <h1 style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--bento-text)', margin: 0, letterSpacing: '0' }}>{t('chat.title')}</h1>
+              <p style={{ color: 'var(--bento-muted)', fontSize: '0.85rem', marginTop: '0.15rem' }}>{t('chat.subtitle')}</p>
             </div>
             <button
               onClick={() => setIsChatHistoryOpen(!isChatHistoryOpen)}
-              className="lg:hidden btn-olive"
-              style={{ padding: '0.5rem 1rem' }}
+              className="btn-olive"
+              style={{ padding: '0.4rem 0.85rem', fontSize: '0.85rem' }}
             >
-              <Icon name="History" size={18} /> {t('chat.history')}
+              <Icon name="History" size={16} /> {isChatHistoryOpen ? t('common.messages') : t('chat.history')}
             </button>
           </div>
 
-          <div className="flex-1 grid gap-5 min-h-0 grid-cols-1 lg:grid-cols-[320px_1fr]">
-            
+          <div className={`flex-1 grid gap-4 min-h-0 transition-all duration-300 ${isChatHistoryOpen ? 'grid-cols-1 lg:grid-cols-[300px_1fr]' : 'grid-cols-1'}`}>
+
             {/* History Sidebar */}
-            <div className={`bento-card flex-col h-full w-full overflow-hidden ${isChatHistoryOpen ? 'flex lg:max-w-[320px]' : 'hidden lg:flex lg:max-w-[320px]'}`}>
+            <div className={`bento-card flex-col h-full overflow-hidden transition-all duration-300 ${isChatHistoryOpen ? 'flex lg:max-w-[320px] w-full' : 'hidden'}`}>
               <ChatHistory
                 isOpen={true}
                 onClose={() => setIsChatHistoryOpen(false)}
@@ -224,7 +234,7 @@ User message: ${message}` }] }],
 
             {/* Main Chat Area */}
             <div className={`bento-card flex-col h-full overflow-hidden ${isChatHistoryOpen ? 'hidden lg:flex' : 'flex'}`}>
-              
+
               {/* Chat Header */}
               <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--bento-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--bento-chip)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

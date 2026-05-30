@@ -1,9 +1,11 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import { buildRecoveryMatch } from '../../../utils/recoveryMatch';
 
 const FoodAnalysisResult = ({ result, onSaveToHistory, onNewScan }) => {
   if (!result) return null;
+  const hasError = Boolean(result?.errorMessage);
 
   const nutritionData = [
     { 
@@ -45,6 +47,40 @@ const FoodAnalysisResult = ({ result, onSaveToHistory, onNewScan }) => {
 
   const totalCalories = 400; // Daily target for progress calculation
   const caloriePercentage = Math.min((result?.calories / totalCalories) * 100, 100);
+  const recoveryMatch = hasError ? null : buildRecoveryMatch(result);
+
+  if (hasError) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <div className="w-24 h-24 bg-muted rounded-full mx-auto mb-4 overflow-hidden">
+            {result?.image ? (
+              <img
+                src={result?.image}
+                alt={result?.name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Icon name="AlertTriangle" size={32} className="text-warning" />
+              </div>
+            )}
+          </div>
+          <h3 className="text-xl font-semibold text-foreground mb-2">{result?.name || 'Analysis Error'}</h3>
+          <p className="text-sm text-muted-foreground">{result.errorMessage}</p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={onNewScan}
+          iconName="Camera"
+          iconPosition="left"
+          className="w-full"
+        >
+          Scan Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -93,6 +129,42 @@ const FoodAnalysisResult = ({ result, onSaveToHistory, onNewScan }) => {
           ></div>
         </div>
       </div>
+      {/* Workout Recovery Match */}
+      {recoveryMatch && <div className="bg-primary/10 border border-primary/20 rounded-xl p-4">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h4 className="font-semibold text-card-foreground flex items-center space-x-2">
+              <Icon name="Activity" size={17} className="text-primary" />
+              <span>Recovery Match</span>
+            </h4>
+            <p className="text-sm text-muted-foreground mt-1">
+              {recoveryMatch.verdict} after {recoveryMatch.focus}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-3xl font-bold text-primary">{recoveryMatch.score}%</p>
+            <p className="text-xs text-muted-foreground">fit score</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          {[
+            { label: 'Protein', value: recoveryMatch.proteinCoverage },
+            { label: 'Carbs', value: recoveryMatch.carbCoverage },
+            { label: 'Calories', value: recoveryMatch.calorieCoverage },
+          ].map(item => (
+            <div key={item.label}>
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                <span>{item.label}</span>
+                <span>{item.value}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-border overflow-hidden">
+                <div className="h-full bg-primary rounded-full" style={{ width: `${item.value}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm text-card-foreground">{recoveryMatch.nextStep}</p>
+      </div>}
       {/* Nutrition Breakdown */}
       <div className="grid grid-cols-2 gap-4">
         {nutritionData?.map((item, index) => (

@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import AppHeader from '../../components/ui/AppHeader';
 import SidebarNavigation from '../../components/ui/SidebarNavigation';
-import { getAccountId } from '../../utils/localAccountStorage';
+import CoachPulse from '../../components/CoachPulse';
+import { getAccountId, getLocalFoodLogs } from '../../utils/localAccountStorage';
+import { buildDashboardCoachPulse } from '../../utils/coachPulse';
 import { useLanguage } from '../../contexts/LanguageContext';
 import '../../styles/bento-dashboard.css';
 
@@ -29,6 +31,114 @@ const ICONS = {
   trophy:  ['M6 9H3V4h3','M18 9h3V4h-3','M8 21h8','M12 17v4','M7 4h10a1 1 0 010 14.5H7A1 1 0 017 4z'],
   scan:    ['M4 7V5a1 1 0 011-1h2','M17 4h2a1 1 0 011 1v2','M20 17v2a1 1 0 01-1 1h-2','M7 20H5a1 1 0 01-1-1v-2','M8 12h8'],
   fork:    ['M6 2v8','M10 2v8','M6 6h4','M8 10v12','M17 2v20','M14 2h3a3 3 0 013 3v5a3 3 0 01-3 3h-3'],
+  target:  ['M12 21a9 9 0 100-18 9 9 0 000 18z','M12 17a5 5 0 100-10 5 5 0 000 10z','M12 13a1 1 0 100-2 1 1 0 000 2z'],
+};
+
+const normalizeText = value => String(value || '').toLowerCase();
+
+const readStoredJson = (key, fallback = null) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const getPrimaryFocus = (user = {}) => {
+  const focus = Array.isArray(user.focusAreas) ? user.focusAreas[0] : user.focusAreas;
+  const goal = Array.isArray(user.goals) ? user.goals[0] : user.primaryGoal;
+  return normalizeText(focus || goal || user.physique || 'full body');
+};
+
+const getMissionWorkout = (user = {}, savedPlan = null) => {
+  const firstPlanExercise = savedPlan?.exercises?.find(item => !item.completed) || savedPlan?.exercises?.[0];
+  if (firstPlanExercise?.name) return firstPlanExercise.name;
+
+  const focus = getPrimaryFocus(user);
+  if (focus.includes('chest') || focus.includes('biceps') || focus.includes('shoulder')) return 'Push-ups';
+  if (focus.includes('legs') || focus.includes('glutes')) return 'Squats';
+  if (focus.includes('core') || focus.includes('abs')) return 'Plank';
+  if (focus.includes('weight') || focus.includes('endurance')) return 'Mountain Climbers';
+  return 'Full Body Strength';
+};
+
+const buildDailyMissions = ({ user, language, todayKey, water, waterGoal }) => {
+  let stats = {};
+  let progress = {};
+  let savedPlan = null;
+  let meals = [];
+
+  stats = readStoredJson('fitcoach_workout_stats', {});
+  progress = readStoredJson('fitcoach_daily_progress', {})?.[todayKey] || {};
+  savedPlan = readStoredJson('fitcoach_today_plan', null);
+  try {
+    const userId = getAccountId(user.principal || user.id || user.email || user.name);
+    meals = getLocalFoodLogs(userId, { date: todayKey });
+  } catch {}
+
+  const planItems = savedPlan?.exercises || savedPlan?.items || [];
+  const completedPlanItems = planItems.filter(item => item.completed).length;
+  const workoutDone = (progress.workoutsCompleted || 0) > 0 || (planItems.length > 0 && completedPlanItems === planItems.length);
+  const mealDone = meals.length > 0;
+  const hydrationTarget = Math.min(waterGoal || 2500, 1000);
+  const challengeDone = water >= hydrationTarget || workoutDone;
+  const workoutName = getMissionWorkout(user, savedPlan);
+  const streak = stats.currentStreak || user.currentStreak || 0;
+  const completedCount = [workoutDone, mealDone, challengeDone].filter(Boolean).length;
+
+  const ar = language === 'ar';
+  const focusLabel = ar ? 'خطة اليوم' : 'Today plan';
+  const mealLabel = ar ? 'تغذية' : 'Nutrition';
+  const challengeLabel = ar ? 'تحدي صغير' : 'Micro challenge';
+
+  return {
+    completedCount,
+    coachNote: ar
+      ? (workoutDone ? 'حلو. ثبّت اليوم بسكان وجبة أو جرعة مياه خفيفة.' : `ابدأ بـ ${workoutName} وبعدها سجّل وجبة بروتين.`)
+      : (workoutDone ? 'Nice work. Lock the day in with a meal scan or a hydration top-up.' : `Start with ${workoutName}, then log a protein-focused meal.`),
+    streakText: ar
+      ? (streak > 0 ? `${streak} يوم سلسلة` : 'ابدأ سلسلة جديدة')
+      : (streak > 0 ? `${streak} day streak` : 'Start a new streak'),
+    items: [
+      {
+        id: 'workout',
+        icon: 'flame',
+        label: focusLabel,
+        title: workoutDone ? (ar ? 'تمرين اليوم اكتمل' : 'Workout complete') : workoutName,
+        meta: workoutDone
+          ? (ar ? 'الخطوة الجاية: استشفاء وتغذية' : 'Next up: recover and refuel')
+          : (ar ? `${user.fitnessLevel || 'intermediate'} - جلسة موجهة بالكاميرا` : `${user.fitnessLevel || 'intermediate'} - camera guided session`),
+        done: workoutDone,
+        action: 'workout',
+        cta: workoutDone ? (ar ? 'راجع التمرين' : 'Review') : (ar ? 'ابدأ' : 'Start'),
+      },
+      {
+        id: 'meal',
+        icon: 'fork',
+        label: mealLabel,
+        title: mealDone ? (ar ? `${meals.length} وجبة محفوظة` : `${meals.length} meal scan saved`) : (ar ? 'امسح وجبة بعد التمرين' : 'Scan a post-workout meal'),
+        meta: mealDone
+          ? (ar ? `${Math.round(meals.reduce((sum, meal) => sum + (Number(meal.protein) || 0), 0))}g بروتين اليوم` : `${Math.round(meals.reduce((sum, meal) => sum + (Number(meal.protein) || 0), 0))}g protein logged today`)
+          : (ar ? 'اربط الأكل بتمرينك بدل أرقام منفصلة' : 'Tie nutrition to the workout, not just calories'),
+        done: mealDone,
+        action: 'meal',
+        cta: mealDone ? (ar ? 'افتح السجل' : 'History') : (ar ? 'امسح' : 'Scan'),
+      },
+      {
+        id: 'challenge',
+        icon: 'target',
+        label: challengeLabel,
+        title: challengeDone ? (ar ? 'إيقاع اليوم تمام' : 'Daily rhythm locked') : (ar ? `وصل ${hydrationTarget} مل مياه` : `Reach ${hydrationTarget} ml water`),
+        meta: challengeDone
+          ? (ar ? 'مهمة صغيرة حافظت على الاستمرارية' : 'Small win secured for consistency')
+          : (ar ? `${Math.max(hydrationTarget - water, 0)} مل متبقي للتحدي` : `${Math.max(hydrationTarget - water, 0)} ml left for the challenge`),
+        done: challengeDone,
+        action: 'hydrate',
+        cta: challengeDone ? (ar ? 'تم' : 'Done') : '+250 ml',
+      },
+    ],
+  };
 };
 
 // ─── Ring Progress ────────────────────────────────────────────────────────────
@@ -120,6 +230,9 @@ export default function Dashboard() {
   const exercises = language === 'ar'
     ? ['ضغط', 'ضغط واسع', 'سكوات', 'بلانك', 'اندفاع', 'متسلق الجبل']
     : ['Push-ups','Wide Push Ups','Squats','Plank','Lunges','Mountain Climbers'];
+  const dailyMission = buildDailyMissions({ user, language, todayKey, water, waterGoal });
+  const coachPulse = buildDashboardCoachPulse({ mission: dailyMission, water, waterGoal });
+
   const addWater = (amount) => {
     setWater(prev => Math.min(prev + amount, waterGoal));
     setWaterHistory(prev => [...prev, amount].slice(-8));
@@ -134,6 +247,17 @@ export default function Dashboard() {
   const resetWater = () => {
     setWater(0);
     setWaterHistory([]);
+  };
+  const handleMissionAction = (action) => {
+    if (action === 'workout') {
+      navigate('/exercise-workout-screen');
+      return;
+    }
+    if (action === 'meal') {
+      navigate('/food-scanner');
+      return;
+    }
+    if (action === 'hydrate') addWater(250);
   };
 
   return (
@@ -156,7 +280,63 @@ export default function Dashboard() {
         <div className="px-4 py-6 md:px-8 md:py-8 max-w-[1400px] mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-[18px]">
 
+            {/* 0. TODAY'S MISSION — live journey hub */}
+            <div className="bento-card mission-card col-span-1 md:col-span-2 lg:col-span-4">
+              <div className="trail trail-coral" style={{ width: 360, height: 360, top: '-55%', right: '12%', opacity: .14 }} />
+              <div className="mission-card-inner">
+                <div className="mission-hero">
+                  <div className="dash-eyebrow">
+                    <Ic d={ICONS.zap} size={13} stroke="#FF8A00" sw={2.2} />
+                    {language === 'ar' ? 'رحلة اليوم' : "Today's Mission"}
+                  </div>
+                  <h1>{language === 'ar' ? 'ماذا يحتاج جسمك اليوم؟' : 'What does your body need today?'}</h1>
+                  <p>{dailyMission.coachNote}</p>
+                  <div className="mission-progress">
+                    <div>
+                      <strong>{dailyMission.completedCount}/3</strong>
+                      <span>{language === 'ar' ? 'مهام مكتملة' : 'missions complete'}</span>
+                    </div>
+                    <div className="mission-progress-track">
+                      <div style={{ width: `${(dailyMission.completedCount / 3) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mission-list">
+                  {dailyMission.items.map(item => (
+                    <div className={item.done ? 'mission-row mission-row-done' : 'mission-row'} key={item.id}>
+                      <div className="mission-icon">
+                        <Ic d={ICONS[item.icon]} size={17} stroke={item.done ? '#80C342' : '#FF8A00'} sw={2.1} />
+                      </div>
+                      <div className="mission-copy">
+                        <span>{item.label}</span>
+                        <strong>{item.title}</strong>
+                        <p>{item.meta}</p>
+                      </div>
+                      <button
+                        type="button"
+                        className={item.done ? 'mission-action is-done' : 'mission-action'}
+                        onClick={() => handleMissionAction(item.action)}
+                        disabled={item.done && item.action === 'hydrate'}
+                      >
+                        {item.done && item.action === 'hydrate' ? <Ic d={ICONS.check} size={14} stroke="#80C342" sw={2.6} /> : item.cta}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mission-streak">
+                  <Ic d={ICONS.trophy} size={15} stroke="#FAB406" sw={2} />
+                  <span>{dailyMission.streakText}</span>
+                </div>
+              </div>
+            </div>
+
             {/* 1. TODAY'S WORKOUT — spans 3 cols */}
+            <div className="col-span-1 md:col-span-2 lg:col-span-4">
+              <CoachPulse {...coachPulse} />
+            </div>
+
             <div className="bento-card col-span-1 md:col-span-2 lg:col-span-3" style={{ minHeight: 200 }}>
               <div className="trail trail-coral" style={{ width: 280, height: 280, top: '-40%', right: '-5%', opacity: .12 }} />
               <div className="p-5 sm:p-7 relative z-10">

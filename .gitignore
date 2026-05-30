@@ -108,6 +108,3 @@ jspm_packages/
 .kiro/steering/byterover-rules.md
 .qoder/rules/byterover-rules.md
 .augment/rules/byterover-rules.md
-
-# Vite cache
-.vite/

@@ -28,17 +28,11 @@ const ChatMessage = ({ message, isUser, timestamp, isTyping = false }) => {
   }
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      alignItems: 'flex-start', 
-      gap: '12px', 
-      marginBottom: '1rem',
+    <div className={`chat-message-row ${isUser ? 'user-msg' : 'coach-msg'}`} style={{
       flexDirection: isUser ? 'row-reverse' : 'row'
     }}>
       {/* Avatar */}
-      <div style={{ 
-        width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      <div className="chat-message-avatar" style={{ 
         background: isUser ? 'rgba(255, 138, 0,0.15)' : 'rgba(167,162,137,0.1)',
         border: `1px solid ${isUser ? 'rgba(255, 138, 0,0.3)' : 'rgba(167,162,137,0.2)'}`,
         boxShadow: isUser ? '0 0 10px rgba(255, 138, 0,0.2)' : 'none'
@@ -47,15 +41,12 @@ const ChatMessage = ({ message, isUser, timestamp, isTyping = false }) => {
       </div>
       
       {/* Message Bubble */}
-      <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '80%' }}>
-        <div style={{ 
-          padding: '1rem 1.25rem',
+      <div className="chat-message-bubble-wrapper">
+        <div className="chat-message-bubble" style={{ 
           borderRadius: isUser ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
           background: isUser ? 'linear-gradient(135deg, rgba(255, 138, 0,0.15) 0%, rgba(255, 138, 0,0.05) 100%)' : 'rgba(167,162,137,0.08)',
           border: `1px solid ${isUser ? 'rgba(255, 138, 0,0.25)' : 'rgba(167,162,137,0.15)'}`,
           color: isUser ? 'var(--bento-text)' : 'var(--bento-soft-text)',
-          fontSize: '0.95rem',
-          lineHeight: '1.6',
           boxShadow: isUser ? '0 4px 20px rgba(255, 138, 0,0.05)' : 'none'
         }}>
           <div 
@@ -64,11 +55,7 @@ const ChatMessage = ({ message, isUser, timestamp, isTyping = false }) => {
             style={{ margin: 0, '& p': { margin: 0 } }}
           />
         </div>
-        <span style={{ 
-          fontSize: '0.7rem', 
-          color: 'var(--bento-muted)',
-          marginTop: '6px',
-          fontWeight: 600,
+        <span className="chat-message-time" style={{ 
           textAlign: isUser ? 'right' : 'left'
         }}>
           {formatTime(timestamp)}

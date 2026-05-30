@@ -1,8 +1,12 @@
 import fs from 'fs';
-const key = "AIzaSyCYSSno1zaKO9-s3zVetn9oKes_AhAdfqk";
+const key = process.env.VITE_CHATBOT_API_KEY;
 
 async function test() {
   try {
+    if (!key) {
+      throw new Error('Set VITE_CHATBOT_API_KEY before running this test.');
+    }
+
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -12,7 +16,7 @@ async function test() {
     });
     const data = await res.json();
     fs.writeFileSync('response.json', JSON.stringify(data, null, 2));
-  } catch(e) {
+  } catch (e) {
     console.error(e);
   }
 }
