@@ -4,6 +4,7 @@ import Icon from '../AppIcon';
 import logoImage from '../../assets/logo.png';
 import { applyTheme, getSavedTheme } from '../../utils/theme';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { isNative } from '../../utils/platform';
 
 const AppHeader = ({ onSidebarToggle, isSidebarOpen, user, onLogout }) => {
   const navigate = useNavigate();
@@ -11,6 +12,7 @@ const AppHeader = ({ onSidebarToggle, isSidebarOpen, user, onLogout }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [theme, setTheme] = useState(getSavedTheme);
   const { language, isRTL, t, toggleLanguage } = useLanguage();
+  const native = isNative();
 
   useEffect(() => {
     const handleThemeChange = (event) => setTheme(event.detail || getSavedTheme());
@@ -47,20 +49,22 @@ const AppHeader = ({ onSidebarToggle, isSidebarOpen, user, onLogout }) => {
         padding: '0.6rem 1.25rem',
         boxShadow: 'var(--bento-shadow)',
         transition: 'left 0.3s ease-in-out'
-      }} className={`left-3 right-3 sm:left-4 sm:right-4 ${isRTL ? 'lg:right-[284px] lg:left-6' : 'lg:left-[284px] lg:right-6'}`}>
+      }} className={`left-3 right-3 sm:left-4 sm:right-4 ${native ? (isRTL ? 'lg:right-4' : 'lg:left-4') : (isRTL ? 'lg:right-[284px] lg:left-6' : 'lg:left-[284px] lg:right-6')}`}>
 
         {/* Left: Mobile Toggle & Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <button
-            onClick={onSidebarToggle}
-            className="lg:hidden p-1.5"
-            style={{ background: 'transparent', border: 'none', color: 'var(--bento-soft-text)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Icon name="Menu" size={22} />
-          </button>
+          {!native && (
+            <button
+              onClick={onSidebarToggle}
+              className="lg:hidden p-1.5"
+              style={{ background: 'transparent', border: 'none', color: 'var(--bento-soft-text)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Icon name="Menu" size={22} />
+            </button>
+          )}
 
-          {/* Logo shows on mobile, hidden on large screens (since sidebar has it) */}
-          <div className="lg:hidden flex items-center gap-2">
+          {/* Logo shows on mobile/native, hidden on large screens (since sidebar has it) */}
+          <div className={`${!native ? 'lg:hidden' : ''} flex items-center gap-2`}>
             <img src={logoImage} alt="ATOSfit Logo" style={{ width: 28, height: 28, borderRadius: 8, objectFit: 'cover' }} />
             <span className="hidden xs:block" style={{ fontWeight: 800, color: 'var(--bento-text)', fontSize: '0.95rem' }}>ATOSfit</span>
           </div>

@@ -6,6 +6,14 @@ import SidebarNavigation from '../../components/ui/SidebarNavigation';
 import CoachPulse from '../../components/CoachPulse';
 import { getAccountId, getLocalFoodLogs } from '../../utils/localAccountStorage';
 import { buildDashboardCoachPulse } from '../../utils/coachPulse';
+import {
+  DASHBOARD_DATA_UPDATED,
+  addHydration,
+  getDashboardSnapshot,
+  resetHydration,
+  setHydrationGoal,
+  undoHydration
+} from '../../utils/dashboardStatsService';
 import { useLanguage } from '../../contexts/LanguageContext';
 import '../../styles/bento-dashboard.css';
 
@@ -181,16 +189,24 @@ export default function Dashboard() {
   const { language, t } = useLanguage();
   const [user, setUser] = useState({ name: 'Mahmoud Ayman', profilePicture: '' });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [water, setWater] = useState(0);
-  const [waterGoal, setWaterGoal] = useState(2500);
-  const [waterHistory, setWaterHistory] = useState([]);
+  const [dashboardData, setDashboardData] = useState(() => getDashboardSnapshot());
   const [quoteIdx, setQuoteIdx] = useState(0);
-  const waterPct = Math.min(100, Math.round((water / waterGoal) * 100));
-  const waterRemaining = Math.max(waterGoal - water, 0);
+  const hydration = dashboardData.hydration;
+  const nutrition = dashboardData.nutrition;
+  const todayWorkout = dashboardData.todayWorkout;
+  const weeklyWorkout = dashboardData.weeklyWorkout;
+  const readiness = dashboardData.readiness;
+  const achievements = dashboardData.achievements;
+  const subscription = dashboardData.subscription;
+  const water = hydration.water;
+  const waterGoal = hydration.goal;
+  const waterHistory = hydration.history;
+  const waterPct = hydration.percentage;
+  const waterRemaining = hydration.remaining;
   const todayKey = new Date().toISOString().slice(0, 10);
 
   const quotes = [
-    { title:'Hydration Tip', body:'Drink a glass of water 30 min before every workout to boost performance by up to 20%.' },
+    dashboardData.tip,
     { title:'Mindset','body':'Consistency beats intensity. Show up every day, even when you don\'t feel like it.' },
     { title:'Recovery','body':'Sleep is where your muscles are built. Aim for 7–9 hrs to maximize gains.' },
     { title:'Nutrition','body':'Protein within 30 min post-workout accelerates muscle repair and growth.' },
@@ -200,26 +216,25 @@ export default function Dashboard() {
     try {
       const u = JSON.parse(localStorage.getItem('user') || '{}');
       if (u?.name) setUser(u);
-
-      const savedHydration = JSON.parse(localStorage.getItem(`atos_hydration:${getAccountId(u.principal || u.id || u.email || u.name)}`) || '{}');
-      if (savedHydration?.date === todayKey) {
-        setWater(Number(savedHydration.water) || 0);
-        setWaterGoal(Number(savedHydration.goal) || 2500);
-        setWaterHistory(Array.isArray(savedHydration.history) ? savedHydration.history : []);
-      }
+      setDashboardData(getDashboardSnapshot(u.principal || u.id || u.email || u.name));
     } catch {}
   }, [todayKey]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(`atos_hydration:${getAccountId(user.principal || user.id || user.email || user.name)}`, JSON.stringify({
-        date: todayKey,
-        water,
-        goal: waterGoal,
-        history: waterHistory,
-      }));
-    } catch {}
-  }, [todayKey, water, waterGoal, waterHistory, user]);
+    const refreshDashboard = () => {
+      setDashboardData(getDashboardSnapshot(user.principal || user.id || user.email || user.name));
+    };
+    window.addEventListener(DASHBOARD_DATA_UPDATED, refreshDashboard);
+    window.addEventListener('workoutCompleted', refreshDashboard);
+    window.addEventListener('achievementEarned', refreshDashboard);
+    window.addEventListener('storage', refreshDashboard);
+    return () => {
+      window.removeEventListener(DASHBOARD_DATA_UPDATED, refreshDashboard);
+      window.removeEventListener('workoutCompleted', refreshDashboard);
+      window.removeEventListener('achievementEarned', refreshDashboard);
+      window.removeEventListener('storage', refreshDashboard);
+    };
+  }, [user]);
 
   const handleLogout = useCallback(async () => {
     try { await logout(); } catch {}
@@ -230,23 +245,21 @@ export default function Dashboard() {
   const exercises = language === 'ar'
     ? ['ضغط', 'ضغط واسع', 'سكوات', 'بلانك', 'اندفاع', 'متسلق الجبل']
     : ['Push-ups','Wide Push Ups','Squats','Plank','Lunges','Mountain Climbers'];
-  const dailyMission = buildDailyMissions({ user, language, todayKey, water, waterGoal });
+  const displayedExercises = todayWorkout.planItems.length
+    ? todayWorkout.planItems.map(item => item.name).filter(Boolean)
+    : exercises;
+  const dailyMission = dashboardData.missions;
   const coachPulse = buildDashboardCoachPulse({ mission: dailyMission, water, waterGoal });
+  const dashboardAccountId = dashboardData.accountId || user.principal || user.id || user.email || user.name;
 
   const addWater = (amount) => {
-    setWater(prev => Math.min(prev + amount, waterGoal));
-    setWaterHistory(prev => [...prev, amount].slice(-8));
+    addHydration(amount, dashboardAccountId);
   };
   const undoWater = () => {
-    setWaterHistory(prev => {
-      const last = prev[prev.length - 1] || 0;
-      if (last) setWater(current => Math.max(current - last, 0));
-      return prev.slice(0, -1);
-    });
+    undoHydration(dashboardAccountId);
   };
   const resetWater = () => {
-    setWater(0);
-    setWaterHistory([]);
+    resetHydration(dashboardAccountId);
   };
   const handleMissionAction = (action) => {
     if (action === 'workout') {
@@ -346,17 +359,23 @@ export default function Dashboard() {
                       <Ic d={ICONS.flame} size={13} stroke="#FF8A00" sw={2} />
                       <span style={{ fontSize: '.7rem', color: '#FF8A00', fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' }}>{t('dashboard.todaysWorkout')}</span>
                     </div>
-                    <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[var(--bento-text)] m-0 leading-tight tracking-tight">{t('dashboard.fullBodyStrength')}</h2>
-                    <p style={{ color: 'var(--bento-muted)', marginTop: 6, fontSize: '.9rem', fontWeight: 500 }}>6 exercises · 45 min · Intermediate</p>
+                    <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-[var(--bento-text)] m-0 leading-tight tracking-tight">{todayWorkout.plan?.name || (todayWorkout.isCompleted ? 'Workout completed today' : t('dashboard.fullBodyStrength'))}</h2>
+                    <p style={{ color: 'var(--bento-muted)', marginTop: 6, fontSize: '.9rem', fontWeight: 500 }}>
+                      {todayWorkout.totalPlanCount
+                        ? `${todayWorkout.completedPlanCount}/${todayWorkout.totalPlanCount} exercises - ${Math.round(todayWorkout.totalWorkoutTime / 60)} min logged`
+                        : todayWorkout.isCompleted
+                          ? `${Math.round(todayWorkout.caloriesBurned)} kcal - ${Math.round(todayWorkout.totalWorkoutTime / 60)} min`
+                          : 'No workout completed yet today'}
+                    </p>
                   </div>
                   <button className="btn-coral w-full sm:w-auto justify-center" onClick={() => navigate('/exercise-workout-screen')}>
                     <Ic d={ICONS.play} size={15} stroke="#181818" fill="#181818" sw={2} />
-                    {t('dashboard.startWorkout')}
+                    {todayWorkout.isCompleted ? 'Review workout' : t('dashboard.startWorkout')}
                   </button>
                 </div>
                 {/* Exercise chips */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {exercises.map((ex, i) => (
+                  {displayedExercises.map((ex, i) => (
                     <div key={i} style={{ background: 'var(--bento-chip)', border: '1px solid var(--bento-border)', borderRadius: 999, padding: '.35rem .85rem', fontSize: '.78rem', color: 'var(--bento-soft-text)', fontWeight: 500, cursor: 'pointer', transition: 'all .2s' }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255, 138, 0,.5)'; e.currentTarget.style.color = '#FF8A00'; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--bento-border)'; e.currentTarget.style.color = 'var(--bento-soft-text)'; }}>
@@ -406,7 +425,7 @@ export default function Dashboard() {
                     type="button"
                     key={goal}
                     className={waterGoal === goal ? 'active' : ''}
-                    onClick={() => setWaterGoal(goal)}
+                    onClick={() => setHydrationGoal(goal, dashboardAccountId)}
                   >
                     {goal / 1000}L
                   </button>
@@ -426,17 +445,13 @@ export default function Dashboard() {
               <div className="dash-readiness-layout">
                 <div>
                   <div className="dash-readiness-score">
-                    <span>82</span>
-                    <small>/100</small>
+                    <span>{readiness.score ?? '--'}</span>
+                    <small>{readiness.score == null ? '' : '/100'}</small>
                   </div>
-                  <div className="dash-readiness-status">{t('dashboard.trainToday')}</div>
+                  <div className="dash-readiness-status">{readiness.label}</div>
                 </div>
                 <div className="dash-readiness-bars">
-                  {[
-                    { label: t('dashboard.sleep'), val: 76 },
-                    { label: t('dashboard.recovery'), val: 84 },
-                    { label: t('dashboard.strain'), val: 61 },
-                  ].map(item => (
+                  {readiness.factors.map(item => (
                     <div key={item.label}>
                       <div className="dash-bar-row"><span>{item.label}</span><strong>{item.val}%</strong></div>
                       <div className="dash-soft-track"><div style={{ width: `${item.val}%` }} /></div>
@@ -445,8 +460,8 @@ export default function Dashboard() {
                 </div>
                 <div className="dash-readiness-focus">
                   <span>{t('dashboard.bestNextBlock')}</span>
-                  <strong>{t('dashboard.strengthSession')}</strong>
-                  <p>{t('dashboard.strengthCopy')}</p>
+                  <strong>{readiness.bestNextBlock}</strong>
+                  <p>{readiness.copy}</p>
                 </div>
               </div>
             </div>
@@ -463,21 +478,21 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <StatPill icon="flame" label={t('dashboard.caloriesBurned')} value="1,842" unit="kcal" pct={73} />
-                <StatPill icon="trophy" label={t('nav.achievements')} value="12" unit={t('dashboard.unlocked')} pct={100} />
-                <StatPill icon="trend" label={t('dashboard.workouts')} value="4/5" unit={t('dashboard.weeklyGoal')} pct={80} />
+                <StatPill icon="flame" label={t('dashboard.caloriesBurned')} value={Math.round(weeklyWorkout.caloriesBurned).toLocaleString()} unit="kcal" pct={Math.min(100, Math.round((weeklyWorkout.caloriesBurned / 2000) * 100))} />
+                <StatPill icon="trophy" label={t('nav.achievements')} value={achievements.unlockedCount} unit={t('dashboard.unlocked')} pct={achievements.unlockedCount > 0 ? 100 : 0} />
+                <StatPill icon="trend" label={t('dashboard.workouts')} value={`${weeklyWorkout.workoutsCompleted}/${weeklyWorkout.weeklyGoal}`} unit={t('dashboard.weeklyGoal')} pct={weeklyWorkout.weeklyGoalPct} />
               </div>
               {/* Mini progress bars */}
               <div style={{ marginTop:'1.5rem', display:'flex', flexDirection:'column', gap:10 }}>
                 {[
-                  { label:'Push-ups streak', val:78 },
-                  { label:'Plank record', val:55 },
-                  { label:'Squat volume', val:90 },
-                ].map(({ label, val }) => (
+                  { label:'Push-up volume', val: Math.min(100, Math.round((weeklyWorkout.pushupVolume / 100) * 100)), detail: `${weeklyWorkout.pushupVolume} reps` },
+                  { label:'Plank record', val: Math.min(100, Math.round((weeklyWorkout.plankRecordSec / 120) * 100)), detail: `${weeklyWorkout.plankRecordSec}s` },
+                  { label:'Squat volume', val: Math.min(100, Math.round((weeklyWorkout.squatVolume / 100) * 100)), detail: `${weeklyWorkout.squatVolume} reps` },
+                ].map(({ label, val, detail }) => (
                   <div key={label}>
                     <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
                       <span style={{ fontSize:'.75rem', color:'#a7a289', fontWeight:500 }}>{label}</span>
-                      <span style={{ fontSize:'.75rem', color:'#FF8A00', fontWeight:700 }}>{val}%</span>
+                      <span style={{ fontSize:'.75rem', color:'#FF8A00', fontWeight:700 }}>{detail}</span>
                     </div>
                     <div style={{ height:5, borderRadius:999, background:'rgba(167,162,137,.15)' }}>
                       <div style={{ height:'100%', borderRadius:999, background:'linear-gradient(90deg,#FF8A00,#FAB406)', width:`${val}%`, transition:'width 1s ease' }} />
@@ -494,14 +509,19 @@ export default function Dashboard() {
                 <Ic d={ICONS.fork} size={18} stroke="#FF8A00" sw={2} />
               </div>
               <div className="dash-nutrition-hero">
-                <strong>620</strong>
+                <strong>{Math.round(nutrition.remainingCalories)}</strong>
                 <span>{t('dashboard.kcalRemaining')}</span>
               </div>
+              {nutrition.mealCount === 0 && (
+                <p style={{ color: 'var(--bento-muted)', fontSize: '.75rem', margin: '-.4rem 0 .9rem', textAlign: 'center' }}>
+                  No meals logged today yet.
+                </p>
+              )}
               <div className="dash-macro-list">
                 {[
-                  { label: t('dashboard.protein'), val: 68, text: '102 / 150g' },
-                  { label: t('dashboard.carbs'), val: 54, text: '162 / 300g' },
-                  { label: t('dashboard.fat'), val: 42, text: '34 / 80g' },
+                  { label: t('dashboard.protein'), val: nutrition.proteinPct, text: `${Math.round(nutrition.totals.protein)} / ${nutrition.targets.protein}g` },
+                  { label: t('dashboard.carbs'), val: nutrition.carbsPct, text: `${Math.round(nutrition.totals.carbs)} / ${nutrition.targets.carbs}g` },
+                  { label: t('dashboard.fat'), val: nutrition.fatPct, text: `${Math.round(nutrition.totals.fat)} / ${nutrition.targets.fat}g` },
                 ].map(item => (
                   <div key={item.label}>
                     <div className="dash-bar-row"><span>{item.label}</span><strong>{item.text}</strong></div>
@@ -539,11 +559,11 @@ export default function Dashboard() {
               <div style={{ position:'relative', zIndex:1 }}>
                 <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(255, 138, 0,.15)', border:'1px solid rgba(255, 138, 0,.35)', borderRadius:999, padding:'.3rem .85rem', marginBottom:'1rem' }}>
                   <Ic d={ICONS.crown} size={13} stroke="#FF8A00" sw={2.2} />
-                  <span style={{ fontSize:'.7rem', color:'#FF8A00', fontWeight:800, textTransform:'uppercase', letterSpacing:'.08em' }}>{t('dashboard.proPlan')}</span>
+                  <span style={{ fontSize:'.7rem', color:'#FF8A00', fontWeight:800, textTransform:'uppercase', letterSpacing:'.08em' }}>{subscription.isPro ? `${subscription.plan} plan` : t('dashboard.proPlan')}</span>
                 </div>
-                <h3 style={{ fontSize:'1.6rem', fontWeight:900, color:'var(--bento-text)', margin:'0 0 .5rem', lineHeight:1.2 }}>{t('dashboard.unlockElite')}</h3>
+                <h3 style={{ fontSize:'1.6rem', fontWeight:900, color:'var(--bento-text)', margin:'0 0 .5rem', lineHeight:1.2 }}>{subscription.isPro ? 'Your plan is active' : t('dashboard.unlockElite')}</h3>
                 <p style={{ color:'#a7a289', fontSize:'.85rem', lineHeight:1.6, marginBottom:'1.25rem' }}>
-                  {t('dashboard.upgradeCopy')}
+                  {subscription.isPro ? 'Premium features are enabled for this account.' : t('dashboard.upgradeCopy')}
                 </p>
                 <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:'1.25rem' }}>
                   {['Personalized AI programs','Unlimited food scanning','Advanced performance analytics'].map(f => (
@@ -553,11 +573,13 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
-                <button className="btn-coral" style={{ width:'100%', justifyContent:'center', padding:'.9rem' }}
-                  onClick={() => navigate('/pricing')}>
-                  <Ic d={ICONS.zap} size={15} stroke="#181818" fill="#181818" />
-                  {t('dashboard.upgradeNow')}
-                </button>
+                {!subscription.isPro && (
+                  <button className="btn-coral" style={{ width:'100%', justifyContent:'center', padding:'.9rem' }}
+                    onClick={() => navigate('/pricing')}>
+                    <Ic d={ICONS.zap} size={15} stroke="#181818" fill="#181818" />
+                    {t('dashboard.upgradeNow')}
+                  </button>
+                )}
               </div>
             </div>
 

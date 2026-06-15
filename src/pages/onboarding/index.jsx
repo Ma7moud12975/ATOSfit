@@ -6,6 +6,8 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
 import { updateUserProfile } from '../../utils/db';
+import { mobileAppFlowService } from '../../services/mobileAppFlowService';
+import { isNative } from '../../utils/platform';
 import fullBodyImg from './full body.png';
 import shouldersImg from './shoulders.png';
 import bicepsImg from './biceps.png';
@@ -110,6 +112,11 @@ const OnboardingScreen = () => {
       };
 
       localStorage.setItem('user', JSON.stringify({ id: principal?.toString(), ...userProfile }));
+
+      if (isNative()) {
+        mobileAppFlowService.setOnboardingCompleted(true);
+      }
+
       await updateUserProfile(principal?.toString(), userProfile);
       navigate('/dashboard', { replace: true });
     } catch (error) {
@@ -1080,6 +1087,11 @@ const OnboardingScreen = () => {
                 skippedOnboarding: true
               };
               localStorage.setItem('user', JSON.stringify(minimalUserData));
+
+              if (isNative()) {
+                mobileAppFlowService.setOnboardingCompleted(true);
+              }
+
               navigate('/dashboard');
             }}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors"

@@ -1,6 +1,7 @@
 import { db, recordWorkoutSession, updateAggregateStats } from './db';
 import { evaluateAchievements } from './achievements';
 import { calculateSessionCalories } from './calories';
+import { emitDashboardDataUpdated, getWeekRange } from './dashboardStatsService';
 
 // Storage keys for localStorage
 export const STORAGE_KEYS = {
@@ -196,7 +197,9 @@ export async function recordCompletedWorkout(sessionData) {
     const today = new Date().toISOString().split('T')[0];
 
     // Calculate calories for this session
-    const sessionItems = Array.isArray(sessionData) ? sessionData : [sessionData];
+    const sessionItems = Array.isArray(sessionData)
+      ? sessionData
+      : (Array.isArray(sessionData.sessionItems) && sessionData.sessionItems.length ? sessionData.sessionItems : [sessionData]);
     const { total: caloriesBurned } = calculateSessionCalories(sessionItems, user);
 
     // Calculate workout time (use provided or estimate)
@@ -207,27 +210,49 @@ export async function recordCompletedWorkout(sessionData) {
     const { currentStreak, longestStreak } = calculateStreak(workoutStats, workoutStats.lastWorkoutDate);
 
     // Update workout statistics
+    const allProgress = (() => {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEYS.DAILY_PROGRESS) || '{}');
+      } catch {
+        return {};
+      }
+    })();
+    const { start, end } = getWeekRange(new Date());
+    const weeklyWorkouts = Object.values(allProgress).reduce((count, progress) => {
+      const progressDate = new Date(progress.date || Date.now());
+      if (progressDate < start || progressDate > end) return count;
+      return count + (Number(progress.workoutsCompleted) || 0);
+    }, 1);
+
     const updatedStats = updateWorkoutStats({
       totalWorkouts: workoutStats.totalWorkouts + 1,
       totalCalories: workoutStats.totalCalories + caloriesBurned,
       totalWorkoutTime: workoutStats.totalWorkoutTime + workoutTime,
       currentStreak,
       longestStreak,
-      weeklyWorkouts: workoutStats.weeklyWorkouts + 1, // TODO: Calculate properly
+      weeklyWorkouts,
       monthlyWorkouts: workoutStats.monthlyWorkouts + 1, // TODO: Calculate properly
       lastWorkoutDate: new Date().toISOString()
     });
 
     // Update daily progress
     const dailyProgress = getDailyProgress(today);
-    const exerciseNames = Array.isArray(sessionData) ?
-      sessionData.map(s => s.exerciseName || s.name) :
-      [sessionData.exerciseName || sessionData.name];
+    const exerciseNames = sessionItems.map(s => s.exerciseName || s.name).filter(Boolean);
+    const exerciseDetails = sessionItems.map(item => ({
+      name: item.exerciseName || item.name || 'Workout',
+      reps: Number(item.reps) || 0,
+      sets: Number(item.sets) || 1,
+      durationSec: Number(item.durationSec) || Number(item.workoutTime) || 0,
+      caloriesBurned: Math.round((Number(item.caloriesBurned) || caloriesBurned / Math.max(sessionItems.length, 1))),
+      formScore: Number(item.formScore ?? item.angleAccuracy) || 0,
+      completed: item.completed !== false
+    }));
 
     updateDailyProgress({
       workoutsCompleted: dailyProgress.workoutsCompleted + 1,
       caloriesBurned: dailyProgress.caloriesBurned + caloriesBurned,
       exercisesCompleted: [...new Set([...dailyProgress.exercisesCompleted, ...exerciseNames])],
+      exerciseDetails: [...(dailyProgress.exerciseDetails || []), ...exerciseDetails],
       totalWorkoutTime: dailyProgress.totalWorkoutTime + workoutTime
     }, today);
 
@@ -260,6 +285,12 @@ export async function recordCompletedWorkout(sessionData) {
       }
     });
     window.dispatchEvent(workoutCompletedEvent);
+    emitDashboardDataUpdated({
+      type: 'WORKOUT_COMPLETED',
+      caloriesBurned,
+      workoutTime,
+      sessionItems: exerciseDetails
+    });
 
     return {
       success: true,

@@ -1,3 +1,8 @@
+import { READINESS_STATES, POSTURE_VALIDATION_CONFIG } from './pose/exerciseValidationRules';
+import { evaluatePostureFrame } from './pose/postureValidation';
+import { ReadinessStateMachine } from './pose/readinessStateMachine';
+import { VideoTimelineMarkers } from './pose/videoTimelineMarkers';
+
 /**
  * RepTracker - Reusable state management component for exercise repetition tracking
  * Encapsulates EMA smoothing, cooldown timers, baseline recalibration, and state transitions
@@ -217,6 +222,13 @@ class PoseDetectionUtils {
     this.onPostureChange = null;
     this.onFormFeedback = null;
     this.onTimeUpdate = null; // for plank seconds updates
+    this.onReadinessChange = null;
+    this.readinessMachine = new ReadinessStateMachine(window.MediaPipeConfig?.POSTURE_VALIDATION_CONFIG || POSTURE_VALIDATION_CONFIG);
+    this.timelineMarkers = new VideoTimelineMarkers();
+    this.readinessStatus = this.readinessMachine.snapshot();
+    this._lastReadinessFeedbackAt = 0;
+    this._lastReadinessState = this.readinessStatus.state;
+    this._currentFrameTimeSec = null;
     
     // Landmark history for EMA backfilling - circular buffer storing recent landmarks per index
     // Structure: { landmarkIndex: [landmark1, landmark2, ...] }
@@ -301,7 +313,7 @@ class PoseDetectionUtils {
             {
               runtime: 'tfjs',
               modelType,
-              enableSmoothing: true
+              enableSmoothing: cfg.POSE_CONFIG?.smoothLandmarks ?? true
             }
           );
 
@@ -369,12 +381,12 @@ class PoseDetectionUtils {
       });
 
       const config = window.MediaPipeConfig?.POSE_CONFIG || {
-        modelComplexity: 0,
+        modelComplexity: 1,
         smoothLandmarks: true,
         enableSegmentation: false,
         smoothSegmentation: false,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.65
       };
 
       this.pose.setOptions(config);
@@ -403,7 +415,8 @@ class PoseDetectionUtils {
 
     // Create a copy of landmarks to avoid mutating the original
     const validated = [...landmarks];
-    const emaAlpha = 0.3; // EMA smoothing factor
+    const angleConfig = window.MediaPipeConfig?.ANGLE_CONFIG || {};
+    const maxBackfillAgeMs = angleConfig.BACKFILL_MAX_AGE_MS ?? 250;
 
     // Check each critical landmark
     for (const idx of criticalIndices) {
@@ -416,6 +429,14 @@ class PoseDetectionUtils {
           // Get the most recent landmark from history
           const history = this._landmarkHistory[idx];
           const lastLandmark = history[history.length - 1];
+          const ageMs = Date.now() - (lastLandmark.timestamp || 0);
+
+          if (ageMs > maxBackfillAgeMs) {
+            if (Math.random() < 0.05) {
+              console.log(`âŒ Cannot backfill landmark ${idx} - history is stale (${ageMs}ms)`);
+            }
+            return null;
+          }
 
           // Create backfilled landmark with reduced visibility to indicate it's estimated
           validated[idx] = {
@@ -423,7 +444,8 @@ class PoseDetectionUtils {
             y: lastLandmark.y,
             z: lastLandmark.z || 0,
             visibility: 0.3, // Mark as backfilled with lower confidence
-            backfilled: true // Flag to indicate this is a backfilled value
+            backfilled: true, // Flag to indicate this is a backfilled value
+            timestamp: Date.now()
           };
 
           if (Math.random() < 0.05) { // Log occasionally to avoid spam
@@ -744,7 +766,7 @@ class PoseDetectionUtils {
       // Calculate elbow angles
       const leftElbowAngle = this.calculateAngle(leftShoulder, leftElbow, leftWrist);
       const rightElbowAngle = this.calculateAngle(rightShoulder, rightElbow, rightWrist);
-      const avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2;
+      const avgElbowAngle = this._averageFiniteAngles(leftElbowAngle, rightElbowAngle);
 
       // Average shoulder position (for height detection)
       const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
@@ -849,6 +871,8 @@ class PoseDetectionUtils {
         return;
       }
 
+      this._currentFrameTimeSec = Number.isFinite(videoElement.currentTime) ? videoElement.currentTime : null;
+
       // Log video dimensions only once per session
       if (!this.videoDimensionsLogged) {
         console.log(`📏 Video dimensions: ${videoElement.videoWidth}x${videoElement.videoHeight}`);
@@ -902,10 +926,14 @@ class PoseDetectionUtils {
     this.lastResults = results;
 
     if (!results.poseLandmarks) {
-      this.postureStatus = 'unknown';
-      if (this.onPostureChange) {
-        this.onPostureChange('unknown', null);
-      }
+      this._applyReadinessValidation({
+        hasPose: false,
+        isValid: false,
+        isReadyPose: false,
+        requiredVisible: false,
+        reason: 'no_landmarks',
+        feedback: 'Move back so your full body is visible'
+      }, null);
       
       // Emit telemetry for frame-skipped event
       this._emitTelemetry({
@@ -942,6 +970,15 @@ class PoseDetectionUtils {
     const validatedLandmarks = this.validateAndBackfillLandmarks(landmarks, criticalIndices, 0.35);
     
     if (!validatedLandmarks) {
+      this._applyReadinessValidation({
+        hasPose: true,
+        isValid: false,
+        isReadyPose: false,
+        requiredVisible: false,
+        reason: 'insufficient_visibility',
+        feedback: 'Move back so your full body is visible'
+      }, landmarks);
+
       // Emit telemetry for frame-skipped due to insufficient visibility
       const visibilityData = {};
       criticalIndices.forEach(idx => {
@@ -975,14 +1012,26 @@ class PoseDetectionUtils {
       allowCardioBypass: allowCardioBypass
     });
 
-    // Update posture status based on result
-    const newStatus = postureResult.isValid ? 'correct' : 'incorrect';
-    if (newStatus !== this.postureStatus) {
-      this.postureStatus = newStatus;
-      if (this.onPostureChange) {
-        this.onPostureChange(this.postureStatus, validatedLandmarks);
-      }
-    }
+    const validationResult = evaluatePostureFrame(validatedLandmarks, this.exerciseMode, {
+      isPushupStartPose: (frameLandmarks) => this.isPushupStartPose(frameLandmarks),
+      checkBackAlignment: (frameLandmarks, options) => this.checkBackAlignment(frameLandmarks, {
+        ...options,
+        isLiveWebcam: true,
+        allowCardioBypass
+      }),
+      calculateAngle: (a, b, c) => this.calculateAngle(a, b, c)
+    }, window.MediaPipeConfig?.POSTURE_VALIDATION_CONFIG || {});
+
+    const wasReady = !!this.readinessStatus?.isReady;
+    const activePostureValid = allowCardioBypass || postureResult.isValid;
+    const preStartPostureValid = allowCardioBypass || (validationResult.isValid && postureResult.isValid);
+    const readiness = this._applyReadinessValidation({
+      ...validationResult,
+      isValid: wasReady ? activePostureValid : preStartPostureValid,
+      isReadyPose: allowCardioBypass ? validationResult.requiredVisible : validationResult.isReadyPose,
+      feedback: postureResult.isValid ? validationResult.feedback : (postureResult.feedback || validationResult.feedback),
+      reason: postureResult.isValid ? validationResult.reason : (postureResult.reason || validationResult.reason)
+    }, validatedLandmarks);
     
     // Collect visibility data for telemetry
     const visibilityData = {};
@@ -1008,25 +1057,31 @@ class PoseDetectionUtils {
     // counting can occur if legs are stable. The squat counter itself still enforces stability
     // and collapse checks.
     // Also skip posture warnings and counting block for Sit-Ups (allow counting even if back not perfectly straight)
-    if (!postureResult.isValid && !cardioExercises.includes(this.exerciseMode) && this.exerciseMode !== 'squats' && this.exerciseMode !== 'situps') {
+    if (!readiness.canCount) {
       const currentTime = Date.now();
       const cooldown = window.MediaPipeConfig?.PLANK_CONFIG?.WARNING_COOLDOWN || 2000;
+      const rejected = readiness.isReady ? this.readinessMachine.recordRejectedRep(currentTime) : false;
 
       if (currentTime - this.lastWarningTime > cooldown) {
-        this.playWarningSound();
+        if (readiness.isReady) this.playWarningSound();
         this.lastWarningTime = currentTime;
 
         if (this.onFormFeedback) {
           this.onFormFeedback({
-            message: postureResult.feedback || "Dangerous posture - straighten your back!",
+            message: readiness.isReady
+              ? (readiness.feedback || "Counting paused until position is corrected")
+              : (readiness.feedback || "Hold the correct starting position"),
             type: "warning",
             timestamp: currentTime
           });
         }
       }
+      if (rejected) {
+        this.timelineMarkers.addEvent('rejected_rep', this._currentFrameTimeSec || 0, 'Rep not counted - invalid posture');
+      }
 
       // Stop plank timer while incorrect (include reverse plank)
-      if ((this.exerciseMode === 'plank' || this.exerciseMode === 'sideplank') && this.timerRunning) {
+      if ((this.exerciseMode === 'plank' || this.exerciseMode === 'sideplank' || this.exerciseMode === 'wallsit') && this.timerRunning) {
         this.accumulatedCorrectMs += currentTime - this.startCorrectTimestampMs;
         this.timerRunning = false;
         this.startCorrectTimestampMs = 0;
@@ -1163,6 +1218,7 @@ class PoseDetectionUtils {
     });
 
     // Count reps depending on mode
+    const stateBeforeCount = this.perModeState[this.exerciseMode]?.count || 0;
     if (this.exerciseMode === 'squats') {
       this.updateSquatCounter(validatedLandmarks);
     } else if (this.exerciseMode === 'lunges') {
@@ -1206,6 +1262,54 @@ class PoseDetectionUtils {
     } else {
       this.updatePushupCounter(validatedLandmarks);
     }
+    const stateAfterCount = this.perModeState[this.exerciseMode]?.count || 0;
+    if (stateAfterCount > stateBeforeCount) {
+      this.readinessMachine.recordAcceptedRep();
+      this.timelineMarkers.addEvent('accepted_rep', this._currentFrameTimeSec || 0, `Rep ${stateAfterCount} counted`);
+      this.readinessStatus = this.readinessMachine.snapshot();
+    }
+  }
+
+  _applyReadinessValidation(validation, landmarks) {
+    const readiness = this.readinessMachine.update(validation, this._currentFrameTimeSec);
+    this.readinessStatus = readiness;
+    this.postureStatus = readiness.postureStatus;
+    this.timelineMarkers.update(readiness.postureStatus, this._currentFrameTimeSec || 0, readiness.feedback);
+
+    const stateChanged = readiness.state !== this._lastReadinessState;
+    if (stateChanged) {
+      this._lastReadinessState = readiness.state;
+      if (readiness.state === READINESS_STATES.POSITION_READY) {
+        this.timelineMarkers.addEvent('ready', this._currentFrameTimeSec || 0, 'Correct starting position was established');
+      }
+      if (readiness.state === READINESS_STATES.RESUME_WHEN_VALID) {
+        this.timelineMarkers.addEvent('resumed', this._currentFrameTimeSec || 0, 'Counting resumed');
+      }
+      if (readiness.state === READINESS_STATES.REP_COUNTING_PAUSED) {
+        this.timelineMarkers.addEvent('paused', this._currentFrameTimeSec || 0, 'Rep counting paused during invalid body position');
+      }
+    }
+
+    if (this.onPostureChange) {
+      this.onPostureChange(this.postureStatus, landmarks, readiness);
+    }
+    if (this.onReadinessChange) {
+      this.onReadinessChange(readiness);
+    }
+
+    const now = Date.now();
+    const shouldAnnounce = stateChanged || (readiness.isPaused && now - this._lastReadinessFeedbackAt > 2500);
+    if (shouldAnnounce && this.onFormFeedback && readiness.feedback) {
+      this._lastReadinessFeedbackAt = now;
+      this.onFormFeedback({
+        message: readiness.feedback,
+        type: readiness.canCount ? 'success' : 'warning',
+        timestamp: now,
+        readiness
+      });
+    }
+
+    return readiness;
   }
 
   // Allow external code to change exercise mode safely
@@ -1250,7 +1354,7 @@ class PoseDetectionUtils {
       // Calculate elbow angles
       const leftElbowAngle = this.calculateAngle(leftShoulder, leftElbow, leftWrist);
       const rightElbowAngle = this.calculateAngle(rightShoulder, rightElbow, rightWrist);
-      const avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2;
+      const avgElbowAngle = this._averageFiniteAngles(leftElbowAngle, rightElbowAngle);
 
       // Average shoulder position (for height detection)
       const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
@@ -1330,10 +1434,23 @@ class PoseDetectionUtils {
     }
   }
 
-  // Calculate angle between three points
-  calculateAngle(point1, point2, point3) {
-    const radians = Math.atan2(point3.y - point2.y, point3.x - point2.x) -
-      Math.atan2(point1.y - point2.y, point1.x - point2.x);
+  _isAngleLandmarkReliable(point, minVisibility, rejectBackfilled) {
+    if (!point) return false;
+    if (rejectBackfilled && point.backfilled) return false;
+    return (point.visibility ?? 1) >= minVisibility;
+  }
+
+  _calculateAngle2D(point1, point2, point3, minVectorLength = 0.005) {
+    const v1x = point1.x - point2.x;
+    const v1y = point1.y - point2.y;
+    const v2x = point3.x - point2.x;
+    const v2y = point3.y - point2.y;
+    const mag1 = Math.hypot(v1x, v1y);
+    const mag2 = Math.hypot(v2x, v2y);
+
+    if (mag1 < minVectorLength || mag2 < minVectorLength) return Number.NaN;
+
+    const radians = Math.atan2(v2y, v2x) - Math.atan2(v1y, v1x);
     let angle = Math.abs(radians * 180.0 / Math.PI);
 
     if (angle > 180.0) {
@@ -1341,6 +1458,36 @@ class PoseDetectionUtils {
     }
 
     return angle;
+  }
+
+  _hasUsableDepth(point1, point2, point3) {
+    return [point1, point2, point3].every((point) => Number.isFinite(point?.z));
+  }
+
+  _averageFiniteAngles(...angles) {
+    const finiteAngles = angles.filter(Number.isFinite);
+    if (finiteAngles.length === 0) return Number.NaN;
+    return finiteAngles.reduce((sum, angle) => sum + angle, 0) / finiteAngles.length;
+  }
+
+  // Calculate a joint angle while avoiding low-confidence landmarks that create noisy form feedback.
+  calculateAngle(point1, point2, point3) {
+    const angleConfig = window.MediaPipeConfig?.ANGLE_CONFIG || {};
+    const minVisibility = angleConfig.MIN_VISIBILITY ?? 0.45;
+    const rejectBackfilled = angleConfig.REJECT_BACKFILLED ?? true;
+    const use3D = angleConfig.USE_3D_ANGLES ?? true;
+    const minVectorLength = angleConfig.MIN_VECTOR_LENGTH ?? 0.005;
+
+    if (![point1, point2, point3].every((point) => this._isAngleLandmarkReliable(point, minVisibility, rejectBackfilled))) {
+      return Number.NaN;
+    }
+
+    if (use3D && this._hasUsableDepth(point1, point2, point3)) {
+      const angle3D = this.calculateAngle3D(point1, point2, point3);
+      if (Number.isFinite(angle3D)) return angle3D;
+    }
+
+    return this._calculateAngle2D(point1, point2, point3, minVectorLength);
   }
 
   // Strict plank check: require near-horizontal torso and low movement across consecutive frames
@@ -1715,7 +1862,7 @@ class PoseDetectionUtils {
         const scfg = window.MediaPipeConfig?.SQUAT_CONFIG || {};
         const hipAngleLeft = this.calculateAngle(leftShoulder, leftHip, leftKnee);
         const hipAngleRight = this.calculateAngle(rightShoulder, rightHip, rightKnee);
-        const hipAngle = (hipAngleLeft + hipAngleRight) / 2;
+        const hipAngle = this._averageFiniteAngles(hipAngleLeft, hipAngleRight);
         // Configurable thresholds
         const hipAngleMin = scfg.HIP_ANGLE_MIN ?? 120; // generous minimum for 'upright' expectation
         const collapseThreshold = scfg.HIP_ANGLE_COLLAPSE ?? 60; // below this -> collapsed (bad)
@@ -1876,7 +2023,7 @@ class PoseDetectionUtils {
       // Calculate elbow angles
       const leftElbowAngle = this.calculateAngle(leftShoulder, leftElbow, leftWrist);
       const rightElbowAngle = this.calculateAngle(rightShoulder, rightElbow, rightWrist);
-      const avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2;
+      const avgElbowAngle = this._averageFiniteAngles(leftElbowAngle, rightElbowAngle);
 
       // Average shoulder position (for height detection)
       const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
@@ -1998,7 +2145,7 @@ class PoseDetectionUtils {
       // Calculate elbow angles
       const leftElbowAngle = this.calculateAngle(leftShoulder, leftElbow, leftWrist);
       const rightElbowAngle = this.calculateAngle(rightShoulder, rightElbow, rightWrist);
-      const avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2;
+      const avgElbowAngle = this._averageFiniteAngles(leftElbowAngle, rightElbowAngle);
 
       // Average shoulder position (for height detection)
       const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
@@ -2099,7 +2246,7 @@ class PoseDetectionUtils {
       // Calculate elbow angles
       const leftElbowAngle = this.calculateAngle(leftShoulder, leftElbow, leftWrist);
       const rightElbowAngle = this.calculateAngle(rightShoulder, rightElbow, rightWrist);
-      const avgElbowAngle = (leftElbowAngle + rightElbowAngle) / 2;
+      const avgElbowAngle = this._averageFiniteAngles(leftElbowAngle, rightElbowAngle);
 
       // Average shoulder position (for height detection)
       const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
@@ -2543,7 +2690,7 @@ class PoseDetectionUtils {
       // Knee angle using hip-knee-ankle
       const kneeAngleLeft = this.calculateAngle(leftHip, leftKnee, leftAnkle);
       const kneeAngleRight = this.calculateAngle(rightHip, rightKnee, rightAnkle);
-      const avgKneeAngle = (kneeAngleLeft + kneeAngleRight) / 2;
+      const avgKneeAngle = this._averageFiniteAngles(kneeAngleLeft, kneeAngleRight);
 
       // Check leg stability - both legs should be moving together (not one leg down)
       const leftKneeY = leftKnee.y;
@@ -2969,7 +3116,7 @@ class PoseDetectionUtils {
       // 4. Hip angles for validation
       const hipAngleLeft = this.calculateAngle3D(leftShoulder, leftHip, leftKnee);
       const hipAngleRight = this.calculateAngle3D(rightShoulder, rightHip, rightKnee);
-      const hipAngleAvg = (hipAngleLeft + hipAngleRight) / 2;
+      const hipAngleAvg = this._averageFiniteAngles(hipAngleLeft, hipAngleRight);
 
       // === MULTI-METRIC VOTING SYSTEM ===
       let downVotes = 0;
@@ -4670,6 +4817,12 @@ class PoseDetectionUtils {
       }
     }
     this.postureStatus = 'unknown';
+    this.readinessMachine.reset();
+    this.timelineMarkers.reset();
+    this.readinessStatus = this.readinessMachine.snapshot();
+    this._lastReadinessFeedbackAt = 0;
+    this._lastReadinessState = this.readinessStatus.state;
+    this._currentFrameTimeSec = null;
     // Reset plank timing
     this.accumulatedCorrectMs = 0;
     this.timerRunning = false;
@@ -4684,7 +4837,26 @@ class PoseDetectionUtils {
       count: stateObj.count || 0,
       state: stateObj.state || 'up',
       posture: this.postureStatus,
+      readiness: this.readinessStatus,
+      report: this.getPostureReport(),
       timeSec: Math.floor((this.accumulatedCorrectMs + (this.timerRunning ? (Date.now() - this.startCorrectTimestampMs) : 0)) / 1000)
+    };
+  }
+
+  getReadinessStatus() {
+    return this.readinessStatus || this.readinessMachine.snapshot();
+  }
+
+  getPostureReport() {
+    const readiness = this.getReadinessStatus();
+    const timeline = this.timelineMarkers.snapshot();
+    return {
+      firstReadyTimestampSec: readiness.firstReadyTimestampSec,
+      acceptedReps: readiness.acceptedReps,
+      rejectedReps: readiness.rejectedReps,
+      invalidSegments: timeline.segments.filter(segment => segment.type === 'incorrect'),
+      validSegments: timeline.segments.filter(segment => segment.type === 'correct'),
+      timeline
     };
   }
 
@@ -4694,16 +4866,18 @@ class PoseDetectionUtils {
   }
 
   // Set callback functions
-  setCallbacks({ onPushupCount, onPostureChange, onFormFeedback, onTimeUpdate }) {
+  setCallbacks({ onPushupCount, onPostureChange, onFormFeedback, onTimeUpdate, onReadinessChange }) {
     this.onPushupCount = onPushupCount;
     this.onPostureChange = onPostureChange;
     this.onFormFeedback = onFormFeedback;
     this.onTimeUpdate = onTimeUpdate;
+    this.onReadinessChange = onReadinessChange;
     console.debug('PoseDetectionUtils: setCallbacks assigned', {
       hasOnPushupCount: !!onPushupCount,
       hasOnPostureChange: !!onPostureChange,
       hasOnFormFeedback: !!onFormFeedback,
-      hasOnTimeUpdate: !!onTimeUpdate
+      hasOnTimeUpdate: !!onTimeUpdate,
+      hasOnReadinessChange: !!onReadinessChange
     });
   }
 

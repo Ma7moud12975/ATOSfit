@@ -105,6 +105,7 @@ const ExerciseWorkoutScreen = () => {
   const [showCelebration, setShowCelebration] = useState(false);
   const [aiPushupCount, setAiPushupCount] = useState(0);
   const [postureStatus, setPostureStatus] = useState('unknown');
+  const [readinessStatus, setReadinessStatus] = useState(null);
   const [postureCounts, setPostureCounts] = useState({ correct: 0, incorrect: 0 });
   const [formFeedbackHistory, setFormFeedbackHistory] = useState([]);
   const PLAN_KEY = 'fitcoach_today_plan';
@@ -232,6 +233,7 @@ const ExerciseWorkoutScreen = () => {
       setRepsCompleted(0);
       setPostureCounts({ correct: 0, incorrect: 0 });
       setFormFeedbackHistory([]);
+      setReadinessStatus(null);
     }
   };
 
@@ -348,8 +350,9 @@ const ExerciseWorkoutScreen = () => {
     setWorkoutTime(seconds);
   };
 
-  const handlePostureChange = (status, landmarks) => {
+  const handlePostureChange = (status, landmarks, readiness) => {
     setPostureStatus(status);
+    if (readiness) setReadinessStatus(readiness);
     console.log('Posture status:', status);
     if (status === 'correct' || status === 'incorrect') {
       setPostureCounts(prev => ({
@@ -379,6 +382,7 @@ const ExerciseWorkoutScreen = () => {
     setSelectedExercise(exercise);
     setPostureCounts({ correct: 0, incorrect: 0 });
     setFormFeedbackHistory([]);
+    setReadinessStatus(null);
   };
 
   const sortedExercises = [...exercises].sort((a, b) => {
@@ -801,6 +805,7 @@ const ExerciseWorkoutScreen = () => {
                   formScore={Math.round(formScore)}
                   repsCompleted={repsCompleted}
                   isActive={isWorkoutActive && !isPaused}
+                  readinessStatus={readinessStatus}
                 />
               </div>
             </div>
@@ -837,6 +842,7 @@ const ExerciseWorkoutScreen = () => {
                 formScore={Math.round(formScore)}
                 repsCompleted={repsCompleted}
                 isActive={isWorkoutActive && !isPaused}
+                readinessStatus={readinessStatus}
               />
             </div>
 

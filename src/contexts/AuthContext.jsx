@@ -35,13 +35,29 @@ export const AuthProvider = ({ children }) => {
   const envFake = import.meta.env.VITE_FAKE_AUTH === 'true' || import.meta.env.VITE_FAKE_AUTH === '1';
   const envDisable = import.meta.env.VITE_DISABLE_FAKE_AUTH === 'true' || import.meta.env.VITE_DISABLE_FAKE_AUTH === '1';
   const lsFake = typeof window !== 'undefined' && window.localStorage?.getItem('FAKE_AUTH') === '1';
-  const FAKE_AUTH = false;
+  const FAKE_AUTH = !isProduction && !envDisable && (envFake || lsFake || import.meta.env.DEV);
 
   useEffect(() => {
     if (FAKE_AUTH) {
       console.warn('FAKE_AUTH enabled (dev only) - providing a fake identity. Do not commit this to production.');
       const fakePrincipal = Principal.fromText(import.meta.env.VITE_FAKE_PRINCIPAL || '2vxsx-fae');
       const fakeIdentity = { getPrincipal: () => fakePrincipal };
+      const principalId = fakePrincipal.toString();
+
+      if (!localStorage.getItem('user')) {
+        localStorage.setItem('user', JSON.stringify({
+          id: principalId,
+          name: 'Mahmoud Ayman',
+          email: 'dev@atos.fit',
+          fitnessLevel: 'intermediate',
+          goals: ['strength', 'fitness'],
+          age: 25,
+          height: 175,
+          weight: 70,
+          bodyWeight: 70,
+        }));
+      }
+
       setIdentity(fakeIdentity);
       setPrincipal(fakePrincipal);
       setIsAuthenticated(true);

@@ -25,48 +25,65 @@ import AchievementsPage from './pages/achievements';
 import PaymentSuccess from './pages/payment-success';
 import PaymentCancel from './pages/payment-cancel';
 import CommunityPage from './pages/dashboard/CommunityPage';
+import MobileAppRouter from './components/mobile/MobileAppRouter';
+import MobileLayout from './components/mobile/MobileLayout';
+import { isNative } from './utils/platform';
 
 const Routes = () => {
+  const native = isNative();
+
+  const AppContent = () => (
+    <RouterRoutes>
+      {/* Define your route here */}
+      {/* Make the landing page the app root */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/landing" element={<LandingPage />} />
+      <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/about" element={<AboutPage />} />
+      <Route path="/ai-assistant-food-scanner" element={<AIAssistantFoodScanner />} />
+      <Route path="/ai-chat" element={<AIChatPage />} />
+      <Route path="/food-scanner" element={<FoodScannerPage />} />
+      <Route path="/login-screen" element={<LoginScreen />} />
+      {/* Keep a /dashboard route as alias (public) */}
+      <Route path="/exercise-workout-screen" element={<ExerciseWorkoutScreen />} />
+      <Route path="/register-screen" element={<RegisterScreen />} />
+      <Route path="/onboarding" element={<ProtectedRoute><OnboardingScreen /></ProtectedRoute>} />
+      <Route path="/user-profile" element={<UserProfile />} />
+      <Route path="/community" element={<CommunityPage />} />
+
+      {/* Schedule route removed per request */}
+      <Route path="/exercise-library" element={<Exercises />} />
+      <Route path="/achievements" element={<AchievementsPage />} />
+
+      {/* Payment flow routes */}
+      <Route path="/payment-success" element={<PaymentSuccess />} />
+      <Route path="/payment-cancel" element={<PaymentCancel />} />
+
+      <Route path="*" element={<NotFound />} />
+    </RouterRoutes>
+  );
+
   return (
     <BrowserRouter>
       <SupabaseAuthProvider>
         <AuthProvider>
           <ErrorBoundary>
             <ScrollToTop />
-            <RouterRoutes>
-            {/* Define your route here */}
-            {/* Make the landing page the app root */}
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/landing" element={<LandingPage />} />
-            <Route path="/pricing" element={<PricingPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="/ai-assistant-food-scanner" element={<AIAssistantFoodScanner />} />
-            <Route path="/ai-chat" element={<AIChatPage />} />
-            <Route path="/food-scanner" element={<FoodScannerPage />} />
-            <Route path="/login-screen" element={<LoginScreen />} />
-            {/* Keep a /dashboard route as alias (public) */}
-            <Route path="/exercise-workout-screen" element={<ExerciseWorkoutScreen />} />
-            <Route path="/register-screen" element={<RegisterScreen />} />
-            <Route path="/onboarding" element={<ProtectedRoute><OnboardingScreen /></ProtectedRoute>} />
-            <Route path="/user-profile" element={<UserProfile />} />
-            <Route path="/community" element={<CommunityPage />} />
-            
-            {/* Schedule route removed per request */}
-            <Route path="/exercise-library" element={<Exercises />} />
-            <Route path="/achievements" element={<AchievementsPage />} />
-            
-            {/* Payment flow routes */}
-            <Route path="/payment-success" element={<PaymentSuccess />} />
-            <Route path="/payment-cancel" element={<PaymentCancel />} />
-            
-            <Route path="*" element={<NotFound />} />
-          </RouterRoutes>
-        </ErrorBoundary>
-      </AuthProvider>
-    </SupabaseAuthProvider>
-  </BrowserRouter>
+            {native ? (
+              <MobileAppRouter>
+                <MobileLayout>
+                  <AppContent />
+                </MobileLayout>
+              </MobileAppRouter>
+            ) : (
+              <AppContent />
+            )}
+          </ErrorBoundary>
+        </AuthProvider>
+      </SupabaseAuthProvider>
+    </BrowserRouter>
   );
 };
 

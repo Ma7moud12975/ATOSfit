@@ -23,6 +23,7 @@ const CameraFeed = ({
   const [formFeedback, setFormFeedback] = useState(null);
   const [pushupCount, setPushupCount] = useState(0);
   const [postureStatus, setPostureStatus] = useState('unknown');
+  const [readinessStatus, setReadinessStatus] = useState(null);
   const [isPoseDetectionReady, setIsPoseDetectionReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef(null);
@@ -146,11 +147,14 @@ const CameraFeed = ({
               onPushupCount(count);
             }
           },
-          onPostureChange: (status, landmarks) => {
+          onPostureChange: (status, landmarks, readiness) => {
             setPostureStatus(status);
             if (onPostureChange) {
-              onPostureChange(status, landmarks);
+              onPostureChange(status, landmarks, readiness);
             }
+          },
+          onReadinessChange: (status) => {
+            setReadinessStatus(status);
           },
           onFormFeedback: (feedback) => {
             setFormFeedback(feedback);
@@ -260,6 +264,7 @@ const CameraFeed = ({
     }
     setPoseResults(null);
     setFormFeedback(null);
+    setReadinessStatus(null);
     
     // Clean up pose detection
     if (poseDetectionRef.current) {
@@ -342,6 +347,7 @@ const CameraFeed = ({
       poseDetectionRef.current.resetCounter();
       setPushupCount(0);
       setPostureStatus('unknown');
+      setReadinessStatus(null);
     }
   }, [selectedExercise]);
 
@@ -478,13 +484,13 @@ const CameraFeed = ({
             </div>
           </div>
           <div className={`text-xs px-2 py-1 rounded text-center ${
-            postureStatus === 'correct' ? 'bg-green-500/20 text-green-300' :
-            postureStatus === 'incorrect' ? 'bg-red-500/20 text-red-300' :
-            'bg-gray-500/20 text-gray-300'
+            readinessStatus?.canCount ? 'bg-green-500/20 text-green-300' :
+            readinessStatus?.isPaused ? 'bg-red-500/20 text-red-300' :
+            'bg-yellow-500/20 text-yellow-200'
           }`}>
-            {postureStatus === 'correct' ? '✓ Good Posture' :
-             postureStatus === 'incorrect' ? '⚠ Fix Posture' :
-             'Detecting...'}
+            {readinessStatus?.canCount ? 'Workout Active' :
+             readinessStatus?.isPaused ? 'Counting Paused' :
+             readinessStatus?.state?.replaceAll('_', ' ') || 'Detecting...'}
           </div>
         </div>
       )}
@@ -496,14 +502,29 @@ const CameraFeed = ({
             <div className="text-xs text-gray-300">Burpees</div>
           </div>
           <div className={`text-xs px-2 py-1 rounded text-center ${
-            postureStatus === 'correct' ? 'bg-green-500/20 text-green-300' :
-            postureStatus === 'incorrect' ? 'bg-red-500/20 text-red-300' :
-            'bg-gray-500/20 text-gray-300'
+            readinessStatus?.canCount ? 'bg-green-500/20 text-green-300' :
+            readinessStatus?.isPaused ? 'bg-red-500/20 text-red-300' :
+            'bg-yellow-500/20 text-yellow-200'
           }`}>
-            {postureStatus === 'correct' ? '✓ Good Posture' :
-             postureStatus === 'incorrect' ? '⚠ Fix Posture' :
-             'Detecting...'}
+            {readinessStatus?.canCount ? 'Workout Active' :
+             readinessStatus?.isPaused ? 'Counting Paused' :
+             readinessStatus?.state?.replaceAll('_', ' ') || 'Detecting...'}
           </div>
+        </div>
+      )}
+
+      {isActive && readinessStatus && (
+        <div className="absolute bottom-12 sm:bottom-16 left-2 sm:left-4 right-2 sm:right-auto sm:max-w-sm bg-black/75 text-white rounded-lg p-3">
+          <div className="flex items-center justify-between gap-3 mb-1">
+            <span className="text-xs uppercase text-gray-300">Pose Readiness</span>
+            <span className={`text-xs font-semibold ${readinessStatus.canCount ? 'text-green-300' : 'text-yellow-200'}`}>
+              {readinessStatus.state?.replaceAll('_', ' ')}
+            </span>
+          </div>
+          <p className="text-sm font-medium">{readinessStatus.feedback}</p>
+          {readinessStatus.isPaused && (
+            <p className="text-xs text-red-200 mt-1">Rep counting is paused until position is corrected.</p>
+          )}
         </div>
       )}
 
@@ -518,14 +539,10 @@ const CameraFeed = ({
       }
 
       {/* Posture Warning Overlay - Only for incorrect posture */}
-      {postureStatus === 'incorrect' && (isPlankSelected || isWallSitSelected) && (
+      {readinessStatus?.isPaused && readinessStatus?.isReady && (
         <div className="absolute bottom-16 sm:bottom-20 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-center animate-pulse">
-          <div className="font-bold text-base sm:text-lg">⚠️ DANGEROUS POSTURE!</div>
-          <div className="text-xs sm:text-sm">
-            {isPlankSelected ? 'Straighten your back / reach proper depth' : 
-             isWallSitSelected ? 'Adjust your wall sit position' : 
-             'Fix your posture'}
-          </div>
+          <div className="font-bold text-base sm:text-lg">Fix Posture</div>
+          <div className="text-xs sm:text-sm">{readinessStatus.feedback || 'Counting paused until position is corrected'}</div>
         </div>
       )}
       {/* Camera Status Indicator */}

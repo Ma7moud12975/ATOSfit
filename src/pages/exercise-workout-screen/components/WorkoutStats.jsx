@@ -7,7 +7,8 @@ const WorkoutStats = ({
   heartRate = 0,
   formScore = 0,
   repsCompleted = 0,
-  isActive = false
+  isActive = false,
+  readinessStatus = null
 }) => {
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -90,6 +91,28 @@ const WorkoutStats = ({
             </div>
             <div className="text-right">
               <p className="text-3xl font-bold text-success">{repsCompleted}</p>
+            </div>
+          </div>
+        </div>
+      )}
+      {isActive && readinessStatus && (
+        <div className={`rounded-lg p-4 mb-4 border ${
+          readinessStatus.canCount
+            ? 'bg-success/10 border-success/20'
+            : 'bg-warning/10 border-warning/20'
+        }`}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-card-foreground">Pose Readiness</p>
+              <p className="text-xs text-muted-foreground">{readinessStatus.feedback}</p>
+            </div>
+            <div className="text-right">
+              <p className={`text-sm font-bold ${readinessStatus.canCount ? 'text-success' : 'text-warning'}`}>
+                {readinessStatus.state?.replaceAll('_', ' ')}
+              </p>
+              {readinessStatus.isPaused && (
+                <p className="text-xs text-error">Counting paused</p>
+              )}
             </div>
           </div>
         </div>

@@ -12,18 +12,27 @@ window.MediaPipeConfig = {
   TFJS_CONVERTER_URL: 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.10.0/dist/tf-converter.esm.js',
   TFJS_BACKEND_WEBGL_URL: 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.10.0/dist/tf-backend-webgl.esm.js',
   POSE_DETECTION_URL: 'https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.0/dist/pose-detection.esm.js',
-  BLAZEPOSE_MODEL_TYPE: 'lite', // 'lite'|'full'|'heavy'
+  BLAZEPOSE_MODEL_TYPE: 'full', // 'lite'|'full'|'heavy'
   
   // Pose detection settings optimized for web
   POSE_CONFIG: {
-    modelComplexity: 0, // 0 = fastest, 1 = balanced, 2 = most accurate
-    smoothLandmarks: false, // Disable to reduce memory usage
+    modelComplexity: 1, // 0 = fastest, 1 = balanced, 2 = most accurate
+    smoothLandmarks: true,
     enableSegmentation: false,
     smoothSegmentation: false,
-    minDetectionConfidence: 0.7, // Higher confidence for stability
-    minTrackingConfidence: 0.5,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.65,
     staticImageMode: false, // Process video stream
     maxNumHands: 0 // Disable hand detection to save memory
+  },
+
+  // Angle calculations should favor reliable landmarks over noisy frame-by-frame guesses.
+  ANGLE_CONFIG: {
+    MIN_VISIBILITY: 0.45,
+    REJECT_BACKFILLED: true,
+    USE_3D_ANGLES: true,
+    MIN_VECTOR_LENGTH: 0.005,
+    BACKFILL_MAX_AGE_MS: 250
   },
   
   // Push-up specific settings - made more lenient for better detection

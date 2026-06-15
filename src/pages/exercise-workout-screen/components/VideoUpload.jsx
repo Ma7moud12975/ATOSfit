@@ -13,6 +13,12 @@ const EMPTY_ANALYSIS_STATS = {
   maxConfidence: 0,
   warningCount: 0,
   successCount: 0,
+  acceptedReps: 0,
+  rejectedReps: 0,
+  firstReadyTimestamp: null,
+  invalidSegments: [],
+  validSegments: [],
+  timelineEvents: [],
   feedback: [],
   startedAt: null,
   endedAt: null,
@@ -59,6 +65,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
   const [pushupCount, setPushupCount] = useState(0);
   const [plankSeconds, setPlankSeconds] = useState(0);
   const [postureStatus, setPostureStatus] = useState('unknown');
+  const [readinessStatus, setReadinessStatus] = useState(null);
   const [poseResults, setPoseResults] = useState(null);
   const [showPoseOverlay, setShowPoseOverlay] = useState(true);
   const [videoAspectRatio, setVideoAspectRatio] = useState(16/9); // Default aspect ratio
@@ -121,6 +128,16 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
     else if (currentPosture === 'incorrect') stats.incorrectFrames += 1;
     else stats.unknownFrames += 1;
 
+    const report = poseDetectionRef.current?.getPostureReport?.();
+    if (report) {
+      stats.acceptedReps = report.acceptedReps || 0;
+      stats.rejectedReps = report.rejectedReps || 0;
+      stats.firstReadyTimestamp = report.firstReadyTimestampSec;
+      stats.invalidSegments = report.invalidSegments || [];
+      stats.validSegments = report.validSegments || [];
+      stats.timelineEvents = report.timeline?.events || [];
+    }
+
     publishAnalysisStats();
   };
 
@@ -153,11 +170,28 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
       ...stats.feedback.slice(-8),
     ];
 
+    if (stats.firstReadyTimestamp != null) {
+      feedback.push({
+        timestamp: formatVideoTime(stats.firstReadyTimestamp),
+        message: `Correct starting position was established at ${formatVideoTime(stats.firstReadyTimestamp)}`,
+        type: 'success'
+      });
+    }
+
+    stats.invalidSegments.slice(-6).forEach(segment => {
+      feedback.push({
+        timestamp: `${formatVideoTime(segment.start)}-${formatVideoTime(segment.end)}`,
+        message: `Posture invalid from ${formatVideoTime(segment.start)} to ${formatVideoTime(segment.end)}`,
+        type: 'warning'
+      });
+    });
+
     const improvements = [];
     if (detectionRate < 0.7) improvements.push('Use a clearer angle and keep the full body visible for more reliable scoring.');
     if (avgConfidence < 0.75) improvements.push('Improve lighting or camera distance so the pose landmarks stay stable.');
     if (postureRate < 0.75) improvements.push('Focus on alignment during the weak parts of the movement.');
     if (stats.warningCount > 0) improvements.push(`${stats.warningCount} form warning${stats.warningCount === 1 ? '' : 's'} appeared during analysis.`);
+    if (stats.rejectedReps > 0) improvements.push(`${stats.rejectedReps} rep${stats.rejectedReps === 1 ? '' : 's'} rejected because posture was invalid or not ready.`);
     if (!improvements.length) improvements.push('No major form issues detected from the analyzed frames.');
 
     const strengths = [];
@@ -165,6 +199,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
     if (postureRate >= 0.75) strengths.push('Most analyzed posture frames were valid.');
     if (avgConfidence >= 0.75) strengths.push('Landmark detection confidence was strong.');
     if (totalReps > 0) strengths.push(`${totalReps} ${isTimeBased ? 'seconds counted' : 'reps counted'} from movement detection.`);
+    if (stats.firstReadyTimestamp != null) strengths.push(`Ready position established at ${formatVideoTime(stats.firstReadyTimestamp)}.`);
 
     return {
       exerciseDetected: exerciseName,
@@ -182,6 +217,12 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
         detectionRate: Math.round(detectionRate * 100),
         postureAccuracy: Math.round(postureRate * 100),
         warningCount: stats.warningCount,
+        acceptedReps: stats.acceptedReps,
+        rejectedReps: stats.rejectedReps,
+        firstReadyTimestamp: stats.firstReadyTimestamp,
+        invalidSegments: stats.invalidSegments,
+        validSegments: stats.validSegments,
+        timelineEvents: stats.timelineEvents,
       }
     };
   };
@@ -269,6 +310,9 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
         onPostureChange: (status) => {
           console.log('🧍 Video Posture status:', status);
           setPostureStatus(status);
+        },
+        onReadinessChange: (status) => {
+          setReadinessStatus(status);
         },
         onFormFeedback: (feedback) => {
           appendAnalysisFeedback(feedback);
@@ -474,6 +518,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
     setPushupCount(0);
     setPlankSeconds(0);  // Reset plank/wall sit timer
     setPostureStatus('unknown');
+    setReadinessStatus(null);
     setPoseResults(null);
     resetAnalysisStats();
     
@@ -540,6 +585,7 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
     setPushupCount(0);
     setPlankSeconds(0);  // Reset plank/wall sit timer
     setPostureStatus('unknown');
+    setReadinessStatus(null);
     setPoseResults(null);
     resetAnalysisStats();
     
@@ -674,6 +720,18 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
                     </div>
                   )}
                   
+                  {isVideoPlaying && readinessStatus && (
+                    <div className="absolute top-4 right-4 max-w-xs bg-black/75 rounded-lg p-3 text-white">
+                      <div className="flex items-center justify-between gap-3 mb-1">
+                        <span className="text-xs uppercase text-gray-300">Readiness</span>
+                        <span className={`text-xs font-semibold ${readinessStatus.canCount ? 'text-green-300' : 'text-yellow-200'}`}>
+                          {readinessStatus.state?.replaceAll('_', ' ')}
+                        </span>
+                      </div>
+                      <p className="text-sm font-medium">{readinessStatus.feedback}</p>
+                    </div>
+                  )}
+
                   {/* Video Status */}
                   <div className="absolute bottom-4 right-4">
                     <div className="flex items-center space-x-2 bg-black/50 rounded-full px-3 py-1">
@@ -810,9 +868,43 @@ const VideoUpload = ({ onVideoAnalysis, isAnalyzing = false, selectedExercise, o
                       <p className="text-lg font-bold text-warning">{analysisResults.metrics.warningCount}</p>
                       <p className="text-xs text-muted-foreground">Warnings</p>
                     </div>
+                    <div>
+                      <p className="text-lg font-bold text-success">{analysisResults.metrics.acceptedReps || 0}</p>
+                      <p className="text-xs text-muted-foreground">Accepted Reps</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-error">{analysisResults.metrics.rejectedReps || 0}</p>
+                      <p className="text-xs text-muted-foreground">Rejected Reps</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-primary">
+                        {analysisResults.metrics.firstReadyTimestamp != null ? formatVideoTime(analysisResults.metrics.firstReadyTimestamp) : '--'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">First Ready</p>
+                    </div>
+                    <div>
+                      <p className="text-lg font-bold text-warning">{analysisResults.metrics.invalidSegments?.length || 0}</p>
+                      <p className="text-xs text-muted-foreground">Invalid Segments</p>
+                    </div>
                   </div>
                 )}
               </div>
+
+              {analysisResults?.metrics?.invalidSegments?.length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-md font-semibold text-card-foreground">Invalid Posture Segments</h4>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {analysisResults.metrics.invalidSegments.map((segment, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                        <span className="text-sm text-card-foreground">{segment.message || 'Posture invalid'}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {formatVideoTime(segment.start)} - {formatVideoTime(segment.end)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Feedback Timeline */}
               <div className="space-y-3">

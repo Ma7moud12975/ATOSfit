@@ -6,6 +6,7 @@ import {
   clearLocalFoodLogs,
   mergeLocalFoodLogs,
 } from '../localAccountStorage';
+import { emitDashboardDataUpdated } from '../dashboardStatsService';
 
 const toFoodRecord = (userId, foodData) => ({
   user_id: userId,
@@ -21,6 +22,7 @@ const toFoodRecord = (userId, foodData) => ({
 
 export async function logFood(userId, foodData) {
   const local = saveLocalFoodLog(userId, foodData);
+  emitDashboardDataUpdated({ type: 'MEAL_LOGGED', meal: local });
 
   const { data, error } = await supabase
     .from('food_logs')
@@ -34,11 +36,14 @@ export async function logFood(userId, foodData) {
   }
 
   deleteLocalFoodLog(userId, local.id);
-  return saveLocalFoodLog(userId, { ...foodData, ...data, id: data.id });
+  const saved = saveLocalFoodLog(userId, { ...foodData, ...data, id: data.id });
+  emitDashboardDataUpdated({ type: 'FOOD_SCAN_LOGGED', meal: saved });
+  return saved;
 }
 
 export async function logFoods(userId, foods) {
   const localFoods = foods.map(food => saveLocalFoodLog(userId, food));
+  emitDashboardDataUpdated({ type: 'MEALS_LOGGED', meals: localFoods });
 
   const { data, error } = await supabase
     .from('food_logs')
@@ -142,6 +147,7 @@ export async function updateFoodLog(foodId, updates) {
 
 export async function deleteFoodLog(foodId, userId = null) {
   if (userId) deleteLocalFoodLog(userId, foodId);
+  emitDashboardDataUpdated({ type: 'MEAL_DELETED', foodId });
 
   const { data, error } = await supabase
     .from('food_logs')
@@ -160,6 +166,7 @@ export async function deleteFoodLog(foodId, userId = null) {
 
 export async function clearAllFoodLogs(userId) {
   clearLocalFoodLogs(userId);
+  emitDashboardDataUpdated({ type: 'MEALS_CLEARED' });
 
   const { data, error } = await supabase
     .from('food_logs')
