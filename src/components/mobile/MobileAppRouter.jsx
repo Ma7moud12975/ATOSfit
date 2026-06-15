@@ -54,7 +54,12 @@ const MobileAppRouter = ({ children }) => {
       }
       return <Navigate to="/dashboard" replace />;
     } else if (!showWelcome) {
-      return <Navigate to="/login-screen" replace />;
+      // Bypassing Login Screen: Go directly to Onboarding if not authenticated
+      const onboardingCompleted = mobileAppFlowService.getOnboardingCompleted();
+      if (onboardingCompleted) {
+        return <Navigate to="/dashboard" replace />;
+      }
+      return <Navigate to="/onboarding" replace />;
     }
   }
 

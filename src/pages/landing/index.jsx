@@ -1,471 +1,492 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../contexts/AuthContext';
-import './landing-modern.css';
+import InteractiveImage from '../../components/InteractiveImage';
+import { useLanguage } from '../../contexts/LanguageContext';
 
-const features = [
-  {
-    icon: 'ScanLine',
-    title: 'Real-Time Pose Estimation',
-    text: 'Detects body landmarks through camera or uploaded video while the workout is happening.',
-  },
-  {
-    icon: 'Activity',
-    title: 'Joint Angle Analysis',
-    text: 'Measures elbows, knees, hips, shoulders, and posture angles for movement quality.',
-  },
-  {
-    icon: 'Repeat2',
-    title: 'Automatic Rep Counting',
-    text: 'Counts valid reps only when the movement pattern and posture pass the exercise rules.',
-  },
-  {
-    icon: 'ShieldCheck',
-    title: 'AI Form Correction',
-    text: 'Gives instant coaching signals when the athlete needs to slow down or fix alignment.',
-  },
-  {
-    icon: 'Utensils',
-    title: 'Food Scanner',
-    text: 'Turns a meal photo into calories, macros, confidence score, and nutrition guidance.',
-  },
-  {
-    icon: 'MessageCircle',
-    title: 'AI Fitness Coach',
-    text: 'Answers training, recovery, nutrition, and performance questions inside one product.',
-  },
-];
-
-const feedbackCards = [
-  { tone: 'warning', label: 'Posture Warning', text: 'Keep your back straight' },
-  { tone: 'info', label: 'Adjustment', text: 'Lower your hips slightly' },
-  { tone: 'success', label: 'Form Score', text: 'Great form' },
-  { tone: 'success', label: 'Counter', text: 'Rep counted' },
-  { tone: 'danger', label: 'Invalid Rep', text: 'Invalid posture detected' },
-];
-
-const previewCards = [
-  { icon: 'Dumbbell', title: 'Workout Analysis', stat: '94%', text: 'Form score' },
-  { icon: 'Utensils', title: 'Food Scanner', stat: '612', text: 'Calories estimated' },
-  { icon: 'Bot', title: 'AI Coach', stat: 'Live', text: 'Recovery guidance' },
-  { icon: 'TrendingUp', title: 'Progress', stat: '+18%', text: 'Weekly consistency' },
-  { icon: 'Trophy', title: 'Achievement', stat: '12', text: 'Badges unlocked' },
-];
-
-const comparison = [
-  ['Static workout plans', 'Real-time form analysis'],
-  ['Manual tracking', 'Automatic rep counting'],
-  ['No movement feedback', 'AI posture correction'],
-  ['Separate nutrition apps', 'Integrated food scanner'],
-  ['Generic reminders', 'AI coach and smart progress'],
-];
-
-const steps = [
-  ['Open Camera or Upload Video', 'Start instantly with live tracking or analyze a recorded workout.'],
-  ['AI Analyzes Your Movement', 'Landmarks, skeletons, angles, and rep states are processed in real time.'],
-  ['Get Feedback and Progress', 'Receive form corrections, scores, calories, and progress signals.'],
-];
-
-const navLinks = [
-  ['Features', '#features'],
-  ['How It Works', '#how-it-works'],
-  ['AI Analysis', '#analysis'],
-  ['Nutrition', '#nutrition'],
-  ['Demo', '#demo'],
-];
-
-const MiniSkeleton = () => (
-  <div className="atos-skeleton" aria-hidden="true">
-    <span className="joint head" />
-    <span className="joint shoulder-l" />
-    <span className="joint shoulder-r" />
-    <span className="joint elbow-l" />
-    <span className="joint elbow-r" />
-    <span className="joint hand-l" />
-    <span className="joint hand-r" />
-    <span className="joint hip-l" />
-    <span className="joint hip-r" />
-    <span className="joint knee-l" />
-    <span className="joint knee-r" />
-    <span className="joint foot-l" />
-    <span className="joint foot-r" />
-    <i className="bone spine" />
-    <i className="bone shoulders" />
-    <i className="bone arm-l-a" />
-    <i className="bone arm-l-b" />
-    <i className="bone arm-r-a" />
-    <i className="bone arm-r-b" />
-    <i className="bone hips" />
-    <i className="bone leg-l-a" />
-    <i className="bone leg-l-b" />
-    <i className="bone leg-r-a" />
-    <i className="bone leg-r-b" />
-  </div>
-);
-
-const HeroDevice = () => (
-  <div className="hero-product-scene" aria-label="ATOS Fit workout analysis preview">
-    <div className="orbit-ring orbit-one" />
-    <div className="orbit-ring orbit-two" />
-    <div className="phone-device">
-      <div className="phone-glass">
-        <div className="phone-status">
-          <span>9:41</span>
-          <strong>LIVE AI</strong>
-        </div>
-        <div className="phone-camera-feed">
-          <MiniSkeleton />
-          <div className="angle-tag elbow">Elbow 87 deg</div>
-          <div className="angle-tag knee">Knee 112 deg</div>
-          <div className="motion-wave" />
-        </div>
-        <div className="phone-metrics">
-          <div><span>Form</span><strong>96%</strong></div>
-          <div><span>Reps</span><strong>24</strong></div>
-        </div>
-      </div>
-    </div>
-
-    <div className="holo-panel analysis-hologram">
-      <div className="device-topbar">
-        <span />
-        <strong>Computer Vision Layer</strong>
-        <em>TRACKING</em>
-      </div>
-      <div className="holo-stage">
-        <MiniSkeleton />
-        <div className="metric-label hero-elbow">Elbow angle</div>
-        <div className="metric-label hero-knee">Knee angle</div>
-        <div className="metric-label hero-score">Form score 96%</div>
-      </div>
-    </div>
-
-    <div className="device-bottom hero-coach-strip">
-      <div className="pulse-line" />
-      <p>AI correction: keep shoulders stacked and slow the descent.</p>
-    </div>
-  </div>
-);
 
 const LandingPage = () => {
   const navigate = useNavigate();
   const { login, loading: authLoading } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const { language, toggleLanguage } = useLanguage();
+  const [isVisible, setIsVisible] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const landingCopy = language === 'ar' ? {
+    home: 'الرئيسية',
+    pricing: 'الأسعار',
+    privacy: 'الخصوصية',
+    about: 'من نحن',
+    signIn: 'تسجيل الدخول',
+    signingIn: 'جار تسجيل الدخول...',
+    start: 'ابدأ رحلتك',
+    starting: 'جار البدء...',
+    form: 'أداء صحيح',
+    results: 'نتائج أقوى',
+    intro: 'يصحح ATOS fit أداءك لحظيا مع تقنية تحافظ على الخصوصية وتبقي بياناتك تحت سيطرتك.',
+  } : {
+    home: 'Home',
+    pricing: 'Pricing',
+    privacy: 'Privacy',
+    about: 'About Us',
+    signIn: 'Sign In',
+    signingIn: 'Signing in...',
+    start: 'Start Your Journey',
+    starting: 'Starting...',
+    form: 'PERFECT FORM',
+    results: 'MAX RESULTS',
+    intro: 'corrects your form in real-time. With privacy-first technology, your video never leaves your device and you have full control of your data.',
+  };
+
+  const featureWidgets = [
+    {
+      id: "real_time_feedback",
+      heading: "Real-Time Feedback & Form Correction",
+      body: "Get immediate and actionable insights that will help you push past plateaus and smash your goals.",
+      video: "/schools-header-vp9-chrome-1.webm",
+      className: "lg:col-start-1 lg:col-span-4 lg:row-start-1 lg:row-span-2 md:col-start-1 md:col-span-8 md:row-start-1 col-start-1 col-span-4 row-start-1",
+    },
+    {
+      id: "ai_coach",
+      heading: "AI Coach",
+      body: "Ask about anything fitness-related, from workout plans to nutrition advice, and get instant, personalized answers.",
+      image: "artificial-intelligence.svg",
+      className: "lg:col-start-5 lg:col-span-4 lg:row-start-1 md:col-start-1 md:col-span-4 md:row-start-2 col-start-1 col-span-4 row-start-2 svg-white",
+    },
+    {
+      id: "food_scanner",
+      heading: "Food Scanner",
+      body: "Instantly identify food items and get detailed nutritional information to stay on top of your diet.",
+      image: "scanner.svg",
+      className: "lg:col-start-5 lg:col-span-4 lg:row-start-2 md:col-start-5 md:col-span-4 md:row-start-2 col-start-1 col-span-4 row-start-3 svg-white",
+    },
+    {
+      id: "rep_counting",
+      heading: "Automatic Rep Counting",
+      body: "Focus on your form, not the count. Our AI automatically tracks your reps with precision.",
+      image: "Gemini_Generated_Image_5ysnl85ysnl85ysn.png",
+      className: "lg:col-start-9 lg:col-span-4 lg:row-start-1 lg:row-span-2 md:col-start-1 md:col-span-8 md:row-start-3 col-start-1 col-span-4 row-start-4",
+    }
+  ];
 
   useEffect(() => {
-    setMounted(true);
+    setIsVisible(true);
   }, []);
 
-  const goToApp = async () => {
+  const handleGetStarted = async () => {
     try {
       await login();
       const userData = localStorage.getItem('user');
       if (userData) {
         const user = JSON.parse(userData);
-        navigate(user?.name ? '/dashboard' : '/onboarding', { replace: true });
+        if (user.name && user.email) {
+          navigate('/dashboard', { replace: true });
+        } else {
+          navigate('/onboarding', { replace: true });
+        }
       } else {
         navigate('/onboarding', { replace: true });
       }
-    } catch {
+    } catch (e) {
       navigate('/login-screen');
     }
   };
 
-  const goToDemo = () => navigate('/exercise-workout-screen');
+  const handleLogin = async () => {
+    try {
+      await login();
+      const userData = localStorage.getItem('user');
+      if (userData) {
+        const user = JSON.parse(userData);
+        if (user.name && user.email) {
+          navigate('/dashboard', { replace: true });
+        } else {
+          navigate('/onboarding', { replace: true });
+        }
+      } else {
+        navigate('/onboarding', { replace: true });
+      }
+    } catch (e) {
+      navigate('/login-screen');
+    }
+  };
 
   return (
-    <main className={`atos-landing ${mounted ? 'is-mounted' : ''}`}>
-      <nav className="landing-nav" aria-label="Main navigation">
-        <a className="brand-lockup" href="#home" aria-label="ATOS Fit home">
-          <img src="/assets/images/atosfit.png" alt="" />
-          <span>ATOS Fit</span>
-        </a>
+    <div className="min-h-screen bg-[#0F0F0F] text-white font-['Halyard_Display',sans-serif]">
+      {/* Background accent glows */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -left-40 w-[600px] h-[600px] bg-[rgba(255,138,0,0.15)] rounded-full blur-3xl" />
+        <div className="absolute top-1/2 -right-40 w-[500px] h-[500px] bg-[rgba(255,138,0,0.1)] rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-1/2 w-[700px] h-[700px] bg-[rgba(255,138,0,0.08)] rounded-full blur-3xl" />
+      </div>
 
-        <div className="nav-links">
-          {navLinks.map(([label, href]) => (
-            <a key={label} href={href}>{label}</a>
-          ))}
+      {/* Navigation */}
+      <nav className="relative z-50 px-6 py-6">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <img src="/assets/images/atosfit.png" alt="ATOS fit Logo" className="w-10 h-10 object-contain" />
+            <span className="text-2xl font-bold text-white">ATOS fit</span>
+          </div>
+
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-8">
+            <a href="#home" className="text-[#E0E0E0] hover:text-white transition-colors">{landingCopy.home}</a>
+            <button onClick={() => navigate('/pricing')} className="text-[#E0E0E0] hover:text-white transition-colors">{landingCopy.pricing}</button>
+            <button onClick={() => navigate('/privacy')} className="text-[#E0E0E0] hover:text-white transition-colors">{landingCopy.privacy}</button>
+            <button onClick={() => navigate('/about')} className="text-[#E0E0E0] hover:text-white transition-colors">{landingCopy.about}</button>
+            <button onClick={toggleLanguage} className="text-[#FF8A00] hover:text-white transition-colors">{language === 'ar' ? 'EN' : 'AR'}</button>
+          </div>
+
+          {/* Desktop Sign In Button */}
+          <button
+            onClick={handleLogin}
+            disabled={authLoading}
+            className="hidden md:block bg-[#FF8A00] hover:bg-[#E67B00] text-black font-semibold px-6 py-3 rounded-2xl transition-all duration-300 hover:shadow-[0px_4px_15px_rgba(255,138,0,0.2)]"
+          >
+            {authLoading ? landingCopy.signingIn : landingCopy.signIn}
+          </button>
+
+          {/* Mobile Menu Button */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden text-white p-2"
+            aria-label="Toggle mobile menu"
+          >
+            <Icon name={isMobileMenuOpen ? "X" : "Menu"} size={24} />
+          </button>
         </div>
 
-        <div className="nav-actions">
-          <button className="ghost-action" onClick={() => navigate('/login-screen')}>Sign In</button>
-          <button className="primary-action" onClick={goToDemo}>Try Demo</button>
-        </div>
-
-        <button
-          className="mobile-menu"
-          onClick={() => setMenuOpen(value => !value)}
-          aria-label="Toggle navigation"
-          aria-expanded={menuOpen}
-        >
-          <Icon name={menuOpen ? 'X' : 'Menu'} size={22} />
-        </button>
-
-        {menuOpen && (
-          <div className="mobile-panel">
-            {navLinks.map(([label, href]) => (
-              <a key={label} href={href} onClick={() => setMenuOpen(false)}>{label}</a>
-            ))}
-            <button onClick={goToDemo}>Try Demo</button>
+        {/* Mobile Menu */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden absolute top-full left-0 right-0 bg-[#1A1A1A] border-t border-[rgba(255,255,255,0.1)] shadow-lg">
+            <div className="px-6 py-4 space-y-4">
+              <a
+                href="#home"
+                className="block text-[#E0E0E0] hover:text-white transition-colors py-2"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                {landingCopy.home}
+              </a>
+              <button
+                onClick={() => {
+                  navigate('/pricing');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="block text-[#E0E0E0] hover:text-white transition-colors py-2 w-full text-left"
+              >
+                {landingCopy.pricing}
+              </button>
+              <button
+                onClick={() => {
+                  navigate('/privacy');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="block text-[#E0E0E0] hover:text-white transition-colors py-2 w-full text-left"
+              >
+                {landingCopy.privacy}
+              </button>
+              <button
+                onClick={() => {
+                  navigate('/about');
+                  setIsMobileMenuOpen(false);
+                }}
+                className="block text-[#E0E0E0] hover:text-white transition-colors py-2 w-full text-left"
+              >
+                {landingCopy.about}
+              </button>
+              <button
+                onClick={() => {
+                  handleLogin();
+                  setIsMobileMenuOpen(false);
+                }}
+                disabled={authLoading}
+                className="w-full bg-[#FF8A00] hover:bg-[#E67B00] text-black font-semibold px-6 py-3 rounded-2xl transition-all duration-300 hover:shadow-[0px_4px_15px_rgba(255,138,0,0.2)] mt-4"
+              >
+                {authLoading ? landingCopy.signingIn : landingCopy.signIn}
+              </button>
+              <button onClick={toggleLanguage} className="block text-[#FF8A00] py-2 w-full text-left">
+                {language === 'ar' ? 'English' : 'العربية'}
+              </button>
+            </div>
           </div>
         )}
       </nav>
 
-      <section id="home" className="hero-section">
-        <div className="hero-scene">
-          <div className="hero-grid" />
-          <div className="cinema-light light-cyan" />
-          <div className="cinema-light light-orange" />
-          <div className="data-stream stream-a" />
-          <div className="data-stream stream-b" />
-          <div className="ai-particles" aria-hidden="true">
-            {Array.from({ length: 18 }).map((_, index) => <i key={index} />)}
-          </div>
-          <HeroDevice />
-          <div className="floating-card card-calories">
-            <Icon name="Flame" size={18} />
-            <span>Calories</span>
-            <strong>184 kcal</strong>
-          </div>
-          <div className="floating-card card-heart">
-            <Icon name="HeartPulse" size={18} />
-            <span>Heart line</span>
-            <strong>128 bpm</strong>
-          </div>
-          <div className="floating-card card-water">
-            <Icon name="Droplet" size={18} />
-            <span>Hydration</span>
-            <strong>72%</strong>
-          </div>
-          <div className="floating-card card-reps">
-            <Icon name="Repeat2" size={18} />
-            <span>Rep Count</span>
-            <strong>24</strong>
-          </div>
-          <div className="floating-card card-score">
-            <Icon name="ShieldCheck" size={18} />
-            <span>Form Score</span>
-            <strong>96%</strong>
-          </div>
-          <div className="fitness-object dumbbell" aria-hidden="true" />
-          <div className="fitness-object stopwatch" aria-hidden="true" />
-        </div>
+      {/* Hero Section */}
+      <section id="home" className="relative z-10 pt-4 pb-12 lg:pt-6 lg:pb-16">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-20 items-center">
+            {/* Left Content */}
+            <div className={`space-y-6 transition-all duration-1000 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+              <div className="space-y-6">
+                <h1 className="text-6xl font-bold leading-tight text-white">
+                  <div className="mb-3">{landingCopy.form}</div>
+                  <div className="text-[#FF8A00] mb-4">{landingCopy.results}</div>
+                </h1>
+                <p className="text-xl text-[#E0E0E0] leading-relaxed max-w-lg">
+                  <span className="text-[#FF8A00] font-semibold">ATOS fit</span> {landingCopy.intro}
+                </p>
+              </div>
 
-        <div className="hero-copy">
-          <div className="eyebrow"><span /> AI fitness intelligence</div>
-          <h1>Your AI Fitness Coach Powered by Computer Vision</h1>
-          <p>
-            Computer vision workouts, nutrition intelligence, hydration signals, and AI coaching in one cinematic training system.
-          </p>
-          <div className="hero-actions">
-            <button className="primary-action large" onClick={goToApp} disabled={authLoading}>
-              {authLoading ? 'Starting...' : 'Start AI Analysis'}
-            </button>
-            <button className="secondary-action large" onClick={goToDemo}>
-              <Icon name="Play" size={18} />
-              Watch Demo
-            </button>
-          </div>
-          <div className="hero-proof">
-            <span>Pose landmarks</span>
-            <span>Joint angles</span>
-            <span>Food AI</span>
-            <span>AI Coach</span>
-          </div>
-        </div>
-      </section>
-
-      <section id="features" className="section-shell">
-        <div className="section-heading">
-          <span>Feature stack</span>
-          <h2>A full AI training system, not another workout template.</h2>
-        </div>
-        <div className="feature-grid">
-          {features.map(feature => (
-            <article className="glass-card feature-card" key={feature.title}>
-              <div className="icon-chip"><Icon name={feature.icon} size={21} /></div>
-              <h3>{feature.title}</h3>
-              <p>{feature.text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="analysis" className="section-shell analysis-section">
-        <div className="section-heading narrow">
-          <span>AI motion analysis</span>
-          <h2>Landmarks become posture decisions in real time.</h2>
-          <p>
-            ATOS Fit detects body landmarks, renders a skeleton overlay, calculates joint angles,
-            and evaluates exercise form in real time.
-          </p>
-        </div>
-        <div className="analysis-board">
-          <div className="movement-panel">
-            <div className="person-frame">
-              <div className="athlete-silhouette" />
-              <div className="floor-shadow" />
+              <button
+                onClick={handleGetStarted}
+                disabled={authLoading}
+                className="bg-[#FF8A00] hover:bg-[#E67B00] text-black font-semibold px-8 py-4 rounded-2xl text-lg transition-all duration-300 hover:shadow-[0px_4px_15px_rgba(255,138,0,0.2)] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {authLoading ? landingCopy.starting : landingCopy.start}
+              </button>
             </div>
-            <div className="panel-caption">
-              <strong>Camera input</strong>
-              <span>Live push-up capture</span>
+
+            {/* Right Content - Interactive iPhone */}
+            <div className="relative">
+              <InteractiveImage />
             </div>
           </div>
-          <div className="movement-panel skeleton-panel">
-            <MiniSkeleton />
-            <div className="metric-label label-elbow">Elbow Angle 87 deg</div>
-            <div className="metric-label label-knee">Knee Angle 112 deg</div>
-            <div className="metric-label label-score">Form Score 96%</div>
-            <div className="metric-label label-reps">Rep Count 24</div>
-            <div className="metric-label label-warning">Posture Warning</div>
+        </div>
+      </section>
+
+      {/* Features Section Title */}
+      <section className="relative z-10 pt-16 lg:pt-20 pb-8">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8 text-center">
+          <h2 className="text-5xl font-semibold text-white mb-6">
+            Why Choose <span className="text-[#FF8A00]">ATOS fit</span>?
+          </h2>
+          <p className="text-xl text-[#E0E0E0] max-w-3xl mx-auto">
+            Discover the revolutionary features that make ATOS fit the ultimate AI-powered fitness companion
+          </p>
+        </div>
+      </section>
+
+      {/* Features Grid Section */}
+      <section className="relative z-10 pb-16 lg:pb-20">
+        <div className="max-w-full px-6 lg:px-8">
+          <div className="grid grid-cols-4 md:grid-cols-8 lg:grid-cols-12 gap-6 md:gap-8 lg:gap-10 auto-rows-[minmax(300px,auto)]">
+            {featureWidgets.map((feature, index) => {
+              const isLargeWidget = feature.id === 'real_time_feedback' || feature.id === 'rep_counting';
+              return (
+                <div
+                  key={feature.id}
+                  className={`bg-[#1A1A1A] border border-[rgba(255,255,255,0.1)] rounded-[32px] ${isLargeWidget ? '' : 'p-6 md:p-8'} flex flex-col text-white transition-all duration-300 hover:border-[rgba(255,138,0,0.5)] hover:shadow-[0px_0px_60px_rgba(255,138,0,0.2)] ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'} ${feature.className}`}
+                >
+                  {isLargeWidget ? (
+                    <div className="relative flex-grow flex flex-col justify-end">
+                      {feature.video ? (
+                        <video
+                          src={feature.video}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          className="absolute inset-0 w-full h-full object-cover rounded-[32px]"
+                        />
+                      ) : (
+                        <img src={feature.image} alt={feature.heading} className="absolute inset-0 w-full h-full object-contain rounded-[32px]" />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent rounded-[32px]"></div>
+                      <div className="relative p-4">
+                        <h3 className="text-2xl md:text-3xl font-semibold mb-2 text-[#FF8A00]">{feature.heading}</h3>
+                        <p className="text-base text-[rgba(255,255,255,0.8)] leading-relaxed">{feature.body}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-grow flex flex-col">
+                      {/* Use a row flex with gap to control spacing between image and heading consistently */}
+                      <div className="flex items-start mb-4 gap-4">
+                        {/* For food_scanner: image on the left, heading next to it */}
+                        {feature.id === 'food_scanner' && (
+                          <img src={feature.image} alt={feature.heading} className={`w-16 h-16 object-contain flex-shrink-0 ${feature.className.includes('svg-white') ? 'filter-white' : ''}`} />
+                        )}
+
+                        <div className="flex-1">
+                          <h3 className="text-3xl font-semibold text-[#FF8A00]">{feature.heading}</h3>
+                        </div>
+
+                        {/* For ai_coach: image on the right */}
+                        {feature.id === 'ai_coach' && (
+                          <img src={feature.image} alt={feature.heading} className={`w-16 h-16 object-contain flex-shrink-0 ${feature.className.includes('svg-white') ? 'filter-white' : ''}`} />
+                        )}
+                      </div>
+
+                      <p className="text-lg text-[rgba(255,255,255,0.4)] leading-relaxed">{feature.body}</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       </section>
 
-      <section className="section-shell feedback-section">
-        <div className="feedback-copy">
-          <span>Real-time feedback</span>
-          <h2>Correction that feels like a coach watching every rep.</h2>
-          <p>
-            The interface surfaces clean, immediate coaching signals for posture, tempo,
-            rep validity, and movement confidence.
-          </p>
-        </div>
-        <div className="feedback-stack">
-          {feedbackCards.map(card => (
-            <div className={`feedback-card ${card.tone}`} key={card.text}>
-              <span>{card.label}</span>
-              <strong>{card.text}</strong>
+      {/* Privacy Section */}
+      <section className="relative z-10 py-16 lg:py-20">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="text-center mb-20 lg:mb-24">
+            <h2 className="text-5xl font-semibold text-white mb-6">
+              Your Privacy is <span className="text-[#FF8A00]">Our Foundation</span>
+            </h2>
+            <p className="text-xl text-[#E0E0E0] max-w-3xl mx-auto">
+              Built with privacy-first architecture, ATOS fit ensures your data stays yours while delivering cutting-edge AI fitness coaching
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-10">
+            {/* Local Processing */}
+            <div className={`bg-[#1A1A1A] border border-[rgba(255,255,255,0.1)] rounded-[32px] p-8 transition-all duration-300 hover:border-[rgba(255,138,0,0.5)] hover:shadow-[0px_0px_60px_rgba(255,138,0,0.2)] ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+              <div className="text-center">
+                <div className="w-20 h-20 bg-[rgba(255,255,255,0.05)] rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <img src="/ai-secured.svg" alt="AI Secured" className="w-12 h-12 object-contain filter-orange" />
+                </div>
+                <h3 className="text-2xl font-medium text-white mb-4">
+                  Local AI Processing
+                </h3>
+                <p className="text-[#E0E0E0] mb-6 leading-relaxed">
+                  Your workout videos are processed entirely on your device using MediaPipe technology. No video data ever leaves your phone.
+                </p>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">Real-time pose analysis on-device</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">No video transmission to servers</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">Works completely offline</span>
+                  </div>
+                </div>
+              </div>
             </div>
-          ))}
-        </div>
-      </section>
 
-      <section id="nutrition" className="section-shell nutrition-section">
-        <div className="food-visual">
-          <img src="/scanner.png" alt="AI nutrition scanner interface" />
-          <div className="scan-beam" />
-          <div className="nutrition-card calories"><span>Calories</span><strong>612</strong></div>
-          <div className="nutrition-card protein"><span>Protein</span><strong>42g</strong></div>
-          <div className="nutrition-card confidence"><span>Confidence</span><strong>91%</strong></div>
-        </div>
-        <div className="nutrition-copy">
-          <span>Food scanner</span>
-          <h2>Scan a meal. Get macros before the plate gets cold.</h2>
-          <p>
-            Scan your meal and get instant AI-powered nutrition estimates including calories,
-            protein, carbs, fats, and confidence score.
-          </p>
-        </div>
-      </section>
+            {/* Internet Identity */}
+            <div className={`bg-[#1A1A1A] border border-[rgba(255,255,255,0.1)] rounded-[32px] p-8 transition-all duration-300 hover:border-[rgba(255,138,0,0.5)] hover:shadow-[0px_0px_60px_rgba(255,138,0,0.2)] ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+              <div className="text-center">
+                <div className="w-20 h-20 bg-[rgba(255,255,255,0.05)] rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <img src="/global-identity.svg" alt="Global Identity" className="w-12 h-12 object-contain filter-orange" />
+                </div>
+                <h3 className="text-2xl font-medium text-white mb-4">
+                  Anonymous Authentication
+                </h3>
+                <p className="text-[#E0E0E0] mb-6 leading-relaxed">
+                  Internet Identity provides secure, anonymous login without emails or personal data. Your identity stays completely private.
+                </p>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">No email or personal info required</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">Cryptographically secure</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">Resistant to hacking attempts</span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-      <section className="section-shell coach-section">
-        <div className="coach-copy">
-          <span>AI coach</span>
-          <h2>One assistant for workouts, meals, recovery, and progress.</h2>
-          <p>
-            Ask ATOS Fit about workouts, nutrition, recovery, and performance.
-            Get smart coaching inside one platform.
-          </p>
-        </div>
-        <div className="chat-mockup">
-          <div className="chat-top">
-            <img src="/artificial-intelligence.png" alt="" />
-            <div>
-              <strong>ATOS Coach</strong>
-              <span>Vision-aware guidance</span>
+            {/* Blockchain Storage */}
+            <div className={`bg-[#1A1A1A] border border-[rgba(255,255,255,0.1)] rounded-[32px] p-8 transition-all duration-300 hover:border-[rgba(255,138,0,0.5)] hover:shadow-[0px_0px_60px_rgba(255,138,0,0.2)] ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
+              <div className="text-center">
+                <div className="w-20 h-20 bg-[rgba(255,255,255,0.05)] rounded-2xl flex items-center justify-center mx-auto mb-6">
+                  <img src="/internet-computer.svg" alt="Internet Computer" className="w-12 h-12 object-contain filter-orange" />
+                </div>
+                <h3 className="text-2xl font-medium text-white mb-4">
+                  Decentralized Storage
+                </h3>
+                <p className="text-[#E0E0E0] mb-6 leading-relaxed">
+                  Your data is stored on the Internet Computer blockchain, making it tamper-proof and inaccessible to unauthorized parties.
+                </p>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">Distributed across multiple nodes</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">Cryptographically secured</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Icon name="Check" size={16} className="text-[#FF8A00] flex-shrink-0" />
+                    <span className="text-[rgba(255,255,255,0.4)] text-sm">You own and control your data</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <div className="bubble user">Why did my push-up reps stop counting?</div>
-          <div className="bubble ai">Your hip angle dropped below the valid range. Keep your torso line steady for the next set.</div>
-          <div className="bubble user">What should I eat after this?</div>
-          <div className="bubble ai">Aim for 35g protein, moderate carbs, and 500ml water within the next hour.</div>
-        </div>
-      </section>
 
-      <section id="how-it-works" className="section-shell steps-section">
-        <div className="section-heading">
-          <span>How it works</span>
-          <h2>Three steps from camera input to useful coaching.</h2>
-        </div>
-        <div className="steps-line">
-          {steps.map(([title, text], index) => (
-            <article className="step-card" key={title}>
-              <div className="step-node">{index + 1}</div>
-              <h3>{title}</h3>
-              <p>{text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="demo" className="section-shell preview-section">
-        <div className="section-heading">
-          <span>Product preview</span>
-          <h2>The app experience, staged as a cinematic control room.</h2>
-        </div>
-        <div className="preview-cluster">
-          {previewCards.map(card => (
-            <article className="preview-card" key={card.title}>
-              <Icon name={card.icon} size={22} />
-              <span>{card.title}</span>
-              <strong>{card.stat}</strong>
-              <p>{card.text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="section-shell comparison-section">
-        <div className="section-heading narrow">
-          <span>Why ATOS Fit</span>
-          <h2>Built for intelligent movement, not manual tracking.</h2>
-        </div>
-        <div className="comparison-table">
-          <div className="comparison-column muted">
-            <h3>Normal fitness apps</h3>
-            {comparison.map(([normal]) => <p key={normal}>{normal}</p>)}
-          </div>
-          <div className="comparison-column premium">
-            <h3>ATOS Fit</h3>
-            {comparison.map(([, atos]) => <p key={atos}>{atos}</p>)}
+          {/* Privacy CTA */}
+          <div className="text-center mt-20 lg:mt-24">
+            <div className="bg-[rgba(255,138,0,0.1)] border border-[rgba(255,138,0,0.2)] rounded-[32px] p-10 lg:p-12 max-w-4xl mx-auto">
+              <h3 className="text-3xl font-semibold text-white mb-4">
+                Complete Privacy Transparency
+              </h3>
+              <p className="text-[#E0E0E0] mb-6 leading-relaxed">
+                Learn exactly how we protect your privacy and why ATOS fit is the most secure fitness app available today.
+              </p>
+              <button
+                onClick={() => navigate('/privacy')}
+                className="bg-[#FF8A00] hover:bg-[#E67B00] text-black font-semibold px-8 py-4 rounded-2xl transition-all duration-300 hover:shadow-[0px_4px_15px_rgba(255,138,0,0.2)]"
+              >
+                Read Our Privacy Policy
+              </button>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="final-cta">
-        <div>
-          <span>Future-ready fitness</span>
-          <h2>Train Smarter. Move Better. Track Everything.</h2>
-          <p>Experience the future of AI-powered fitness with ATOS Fit.</p>
-        </div>
-        <div className="hero-actions">
-          <button className="primary-action large" onClick={goToApp}>Try ATOS Fit</button>
-          <button className="secondary-action large" onClick={goToDemo}>View Demo</button>
-        </div>
-      </section>
+      {/* Footer */}
+      <footer className="relative z-10 px-6 lg:px-8 py-16 lg:py-20 border-t border-[rgba(255,255,255,0.1)] mt-16 lg:mt-20">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center space-x-3">
+              <img src="/assets/images/atosfit.png" alt="ATOS fit Logo" className="w-8 h-8 object-contain" />
+              <span className="text-xl font-bold text-white">ATOS fit</span>
+            </div>
 
-      <footer className="landing-footer">
-        <div className="footer-brand">
-          <img src="/assets/images/atosfit.png" alt="" />
-          <div>
-            <strong>ATOS Fit</strong>
-            <p>AI-powered fitness analysis for form, food, coaching, and progress.</p>
+            <div className="flex items-center space-x-8">
+              <a href="#home" className="text-[rgba(255,255,255,0.4)] hover:text-white transition-colors">Home</a>
+              <button onClick={() => navigate('/pricing')} className="text-[rgba(255,255,255,0.4)] hover:text-white transition-colors">Pricing</button>
+              <button onClick={() => navigate('/privacy')} className="text-[rgba(255,255,255,0.4)] hover:text-white transition-colors">Privacy</button>
+              <button onClick={() => navigate('/about')} className="text-[rgba(255,255,255,0.4)] hover:text-white transition-colors">About Us</button>
+            </div>
+
+            <div className="flex items-center space-x-4">
+              <a
+                href="https://www.linkedin.com/company/atos-fit"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[rgba(255,255,255,0.4)] hover:text-[#FF8A00] transition-colors"
+                aria-label="LinkedIn"
+              >
+                <Icon name="Linkedin" size={24} />
+              </a>
+              <a
+                href="https://twitter.com/AtosFit"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[rgba(255,255,255,0.4)] hover:text-[#FF8A00] transition-colors"
+                aria-label="Twitter/X"
+              >
+                <Icon name="Twitter" size={24} />
+              </a>
+              <a
+                href="https://www.producthunt.com/posts/atos-fit?utm_source=other&utm_medium=social"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[rgba(255,255,255,0.4)] hover:text-[#FF8A00] transition-colors"
+                aria-label="Product Hunt"
+              >
+                <Icon name="ExternalLink" size={24} />
+              </a>
+            </div>
           </div>
         </div>
-        <div className="footer-links">
-          {navLinks.map(([label, href]) => <a key={label} href={href}>{label}</a>)}
-        </div>
-        <div className="socials" aria-label="Social links">
-          <span><Icon name="Linkedin" size={18} /></span>
-          <span><Icon name="Twitter" size={18} /></span>
-          <span><Icon name="Github" size={18} /></span>
-        </div>
-        <p className="copyright">Copyright 2026 ATOS Fit. All rights reserved.</p>
       </footer>
-    </main>
+    </div>
   );
 };
 

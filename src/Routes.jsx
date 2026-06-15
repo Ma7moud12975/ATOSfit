@@ -49,7 +49,7 @@ const Routes = () => {
       {/* Keep a /dashboard route as alias (public) */}
       <Route path="/exercise-workout-screen" element={<ExerciseWorkoutScreen />} />
       <Route path="/register-screen" element={<RegisterScreen />} />
-      <Route path="/onboarding" element={<ProtectedRoute><OnboardingScreen /></ProtectedRoute>} />
+      <Route path="/onboarding" element={<OnboardingScreen />} />
       <Route path="/user-profile" element={<UserProfile />} />
       <Route path="/community" element={<CommunityPage />} />
 

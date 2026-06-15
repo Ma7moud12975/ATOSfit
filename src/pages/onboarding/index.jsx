@@ -104,20 +104,25 @@ const OnboardingScreen = () => {
   const handleComplete = async () => {
     setIsLoading(true);
     try {
+      const principalId = principal?.toString() || 'local_user_' + Date.now();
+
       const userProfile = {
         ...formData,
-        principalId: principal?.toString(),
+        principalId: principalId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
 
-      localStorage.setItem('user', JSON.stringify({ id: principal?.toString(), ...userProfile }));
+      localStorage.setItem('user', JSON.stringify({ id: principalId, ...userProfile }));
 
       if (isNative()) {
         mobileAppFlowService.setOnboardingCompleted(true);
       }
 
-      await updateUserProfile(principal?.toString(), userProfile);
+      if (isAuthenticated && principal) {
+        await updateUserProfile(principalId, userProfile);
+      }
+
       navigate('/dashboard', { replace: true });
     } catch (error) {
       console.error('Failed to save user profile:', error);
