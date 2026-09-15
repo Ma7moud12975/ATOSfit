@@ -8,7 +8,7 @@
 > It uses **TensorFlow.js** and **pose estimation** to analyze your workout form, count repetitions in real time, and provide instant feedback — all directly through your webcam.
 
 <p align="center">
-  <img width="1672" height="941" alt="ChatGPT Image Sep 15, 2026, 11_25_46 PM" src="https://github.com/user-attachments/assets/56394799-9f6a-49ba-b75f-783e5fe2defa" />
+<img width="5225" height="2941" alt="ChatGPT Image Sep 15, 2026, 11_25_46 PM" src="https://github.com/user-attachments/assets/c2b23142-65b5-47bb-bcb2-64a5136a11ac" />
 </p>
 
 ---
